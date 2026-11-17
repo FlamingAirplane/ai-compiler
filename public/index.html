@@ -122,6 +122,34 @@ button:disabled { opacity: 0.5; cursor: default; }
 .tool .state { font-size: 12px; color: var(--ok); } .tool .state.off { color: var(--muted); }
 .tool .why { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; }
 .fine { color: var(--muted); font-size: 12px; margin-top: 16px; }
+.chatbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px max(18px, calc((100% - 780px) / 2)); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.chatbar .pick { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 180px; }
+.chatbar .pick select { flex: 1; max-width: 320px; min-width: 0; }
+.instructions { flex-basis: 100%; }
+.instructions summary { cursor: pointer; width: max-content; }
+.instructions[data-set] summary::after { content: " · on"; color: var(--accent); }
+.instructions textarea { width: 100%; margin-top: 6px; resize: vertical; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13.5px; }
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.file-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; background: var(--soft); border-radius: 999px; padding: 3px 4px 3px 10px; max-width: 100%; }
+.file-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-chip button { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: 999px; }
+.msg.user .files { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.msg.user .files .file-chip { background: var(--panel); padding-right: 10px; }
+.user-wrap { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; max-width: 85%; }
+.user-wrap .msg.user { max-width: 100%; }
+.user-wrap .acts { opacity: 0; transition: opacity 0.15s; margin-top: 3px; }
+.user-wrap:hover .acts, .user-wrap:focus-within .acts { opacity: 1; }
+@media (hover: none) { .user-wrap .acts { opacity: 1; } }
+button.attach { font-size: 20px; line-height: 1; padding: 8px 13px; border-radius: var(--radius); align-self: stretch; }
+.composer.dragging { outline: 2px dashed var(--accent); outline-offset: -6px; }
+.usage-card { padding: 12px; }
+.bars { display: grid; grid-template-columns: repeat(14, 1fr); gap: 3px; align-items: end; height: 64px; }
+.bars span { background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; opacity: 0.85; }
+.bars span.zero { background: var(--line); }
+.bars span.today { opacity: 1; outline: 1px solid var(--accent); outline-offset: 1px; }
+.usage-card .totals { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 7px; }
+.toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: grid; gap: 8px; z-index: 20; width: min(420px, calc(100% - 32px)); }
+.toast { background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 13.5px; box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
 .muted { color: var(--muted); font-size: 12.5px; margin: 4px 2px; }
 .actions.test { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; }
 .act { display: grid; grid-template-columns: auto auto 1fr; gap: 0 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
@@ -150,6 +178,16 @@ button:disabled { opacity: 0.5; cursor: default; }
 </header>
 <main>
   <section class="chat" aria-label="Chat">
+    <div class="chatbar">
+      <label class="pick">Chat <select id="chat" aria-label="Saved chats"></select></label>
+      <button id="new" type="button" class="ghost" title="New chat (Alt+N)">New</button>
+      <button id="export" type="button" class="ghost" title="Download this chat as Markdown">Export</button>
+      <button id="delete" type="button" class="ghost" title="Delete this chat">Delete</button>
+      <details id="instructions" class="instructions">
+        <summary>Instructions</summary>
+        <textarea id="system" rows="3" placeholder="Instructions for every reply in this chat, for example: Answer in French. Keep answers under 100 words." aria-label="Instructions for this chat"></textarea>
+      </details>
+    </div>
     <div id="messages" class="messages" aria-live="polite"></div>
     <form id="composer" class="composer">
       <div class="controls">
@@ -165,11 +203,13 @@ button:disabled { opacity: 0.5; cursor: default; }
         </label>
         <label>Skill <select id="skill"><option value="">None</option></select></label>
         <label>Model <select id="model"><option value="auto">Auto</option></select></label>
-        <button id="new" type="button" class="ghost">New chat</button>
       </div>
       <p id="hint" class="hint"></p>
+      <div id="attachments" class="attachments" hidden></div>
       <div class="entry">
-        <textarea id="input" rows="2" placeholder="Ask anything. Enter sends, Shift+Enter adds a line." aria-label="Message"></textarea>
+        <button id="attach" type="button" class="ghost attach" title="Attach text files (or drop them here)" aria-label="Attach files">+</button>
+        <input id="file" type="file" multiple hidden>
+        <textarea id="input" rows="2" placeholder="Ask anything. Enter sends, Shift+Enter adds a line, ↑ recalls your last message, / jumps here." aria-label="Message"></textarea>
         <button id="send" type="submit">Send</button>
       </div>
     </form>
@@ -177,6 +217,8 @@ button:disabled { opacity: 0.5; cursor: default; }
   <aside class="side" aria-label="Free quota and tools">
     <h2>Free quota</h2>
     <div id="providers"></div>
+    <h2>Usage, last 14 days</h2>
+    <div id="usage" class="card usage-card"></div>
     <h2>Recent requests</h2>
     <div id="activity" class="card" style="padding: 2px 12px"></div>
     <h2>Agent tools</h2>
@@ -184,6 +226,7 @@ button:disabled { opacity: 0.5; cursor: default; }
     <p class="fine">Keys are saved in the <code>.env</code> file on this computer and are only sent to the provider they belong to. Use one key per provider, from your own account. Some free tiers keep prompts for training, so do not paste secrets.</p>
   </aside>
 </main>
+<div id="toasts" class="toasts" aria-live="polite"></div>
 <script src="/app.js" defer></script>
 </body>
 </html>

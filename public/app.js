@@ -173,7 +173,13 @@ async function copy(text, button) {
 let status = null;
 let skew = 0; // this clock minus the server clock
 let skills = [];
-let messages = store.get('aic.chat', []);
+// Saved chats, newest first. Older versions kept one chat under 'aic.chat'.
+const newChat = (messages = []) => ({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, title: '', system: '', messages, updated: Date.now() });
+let chats = store.get('aic.chats', null);
+if (!Array.isArray(chats) || !chats.length) chats = [newChat(store.get('aic.chat', []))];
+let chat = chats.find((c) => c.id === store.get('aic.current', null)) ?? chats[0];
+let messages = chat.messages;
+let attachments = []; // [{ name, text }] waiting to go with the next message
 let running = null; // AbortController while a reply is streaming
 const cards = new Map();
 const serverNow = () => Date.now() - skew;
@@ -424,14 +430,47 @@ function renderHint() {
   $('hint').textContent = parts.join(' ');
 }
 
+function renderUsage() {
+  const byDay = new Map();
+  const add = (day, req, tok) => {
+    const d = byDay.get(day) ?? { requests: 0, tokens: 0 };
+    d.requests += req;
+    d.tokens += tok;
+    byDay.set(day, d);
+  };
+  for (const p of status.providers) {
+    for (const [day, h] of Object.entries(p.history ?? {})) add(day, h.requests, h.tokens);
+    if (p.day) add(p.day, p.today.requests, p.today.tokens);
+  }
+  const days = [];
+  for (let i = 13; i >= 0; i--) days.push(new Date(serverNow() - i * 864e5).toISOString().slice(0, 10));
+  const values = days.map((d) => byDay.get(d) ?? { requests: 0, tokens: 0 });
+  const max = Math.max(1, ...values.map((v) => v.requests));
+  const total = values.reduce((n, v) => n + v.requests, 0);
+  $('usage').replaceChildren(
+    el('div', { class: 'bars', role: 'img', 'aria-label': `${total} requests in the last 14 days` }, values.map((v, i) =>
+      el('span', { class: `${v.requests ? '' : 'zero'}${i === 13 ? ' today' : ''}`, style: `height:${Math.max(3, (v.requests / max) * 100)}%`, title: `${days[i]}: ${plural(v.requests, 'request')}, ${fmtNum(v.tokens)} tokens` }),
+    )),
+    el('div', { class: 'totals' }, el('span', { text: `${plural(total, 'request')} · ${fmtNum(values.reduce((n, v) => n + v.tokens, 0))} tokens` }), el('span', { text: 'today on the right' })),
+  );
+}
+
 function setStatus(next) {
   const first = !status; // saved messages were drawn before provider names were known
+  if (status) {
+    for (const p of next.providers) {
+      const before = status.providers.find((x) => x.id === p.id);
+      if (before?.state === 'cooling' && p.state === 'ready') toast(`${p.name} is available again.`);
+      if (before && before.state !== 'rejected' && p.state === 'rejected') toast(`${p.name} rejected its API key.`);
+    }
+  }
   status = next;
   skew = Date.now() - next.now;
   renderSummary();
   renderProviders();
   renderTools();
   renderActivity();
+  renderUsage();
   renderModelOptions();
   renderHint();
   if (first || !messages.length) renderMessages();
@@ -504,11 +543,31 @@ function retry(index) {
   const question = messages[index - 1];
   if (!question || question.role !== 'user') return;
   messages.splice(index - 1, 2);
+  attachments = question.files ?? [];
   send(question.content);
 }
 
+/** Put a sent message back in the box to change it, dropping it and everything after it. */
+function editMessage(index) {
+  if (running) return;
+  const m = messages[index];
+  messages.splice(index);
+  attachments = m.files ?? [];
+  renderAttachments();
+  saveChats();
+  renderMessages();
+  const input = $('input');
+  input.value = m.content;
+  input.dispatchEvent(new Event('input'));
+  input.focus();
+}
+
 function messageNode(m, index) {
-  if (m.role === 'user') return el('div', { class: 'msg user', text: m.content });
+  if (m.role === 'user') {
+    const bubble = el('div', { class: 'msg user', text: m.content || '(files only)' });
+    if (m.files?.length) bubble.append(el('div', { class: 'files' }, m.files.map((f) => el('span', { class: 'file-chip', title: `${f.text.length.toLocaleString()} characters` }, el('span', { text: `📎 ${f.name}` })))));
+    return el('div', { class: 'user-wrap' }, bubble, el('span', { class: 'acts' }, el('button', { type: 'button', class: 'link', text: 'Edit', onclick: () => editMessage(index) })));
+  }
   const node = el('div', { class: 'msg assistant' });
   const steps = (m.notes ?? []).map(describeNote).filter(Boolean);
   if (steps.length) node.append(el('ul', { class: 'steps' }, steps.map((s) => el('li', { class: s.cls, text: s.text, title: s.text }))));
@@ -529,6 +588,7 @@ function messageNode(m, index) {
     actions.push(b);
   }
   if (!m.pending && (m.error || m.stopped)) actions.push(el('button', { type: 'button', class: 'link', text: 'Retry', onclick: () => retry(index) }));
+  else if (!m.pending && index === messages.length - 1) actions.push(el('button', { type: 'button', class: 'link', text: 'Regenerate', title: 'Ask again for a different answer', onclick: () => retry(index) }));
   if (meta || actions.length) node.append(el('div', { class: 'meta' }, meta, actions.length ? el('span', { class: 'acts' }, actions) : null));
   return node;
 }
@@ -583,16 +643,33 @@ async function readStream(body, reply) {
   }
 }
 
+/** What a message says to the model: its text, plus any attached files. */
+function apiContent(m) {
+  if (!m.files?.length) return m.content;
+  const parts = m.files.map((f) => {
+    let fence = '```';
+    while (f.text.includes(fence)) fence += '`';
+    return `File: ${f.name}\n${fence}\n${f.text}\n${fence}`;
+  });
+  return [m.content, ...parts].filter(Boolean).join('\n\n');
+}
+
 async function send(text) {
-  if (running || !text.trim()) return;
-  const history = messages.filter((m) => m.content && !m.error).map(({ role, content }) => ({ role, content }));
-  messages.push({ role: 'user', content: text.trim() });
+  if (running || (!text.trim() && !attachments.length)) return;
+  const history = messages.filter((m) => (m.content || m.files?.length) && !m.error).map((m) => ({ role: m.role, content: apiContent(m) }));
+  const question = { role: 'user', content: text.trim() };
+  if (attachments.length) question.files = attachments;
+  attachments = [];
+  renderAttachments();
+  messages.push(question);
   const reply = { role: 'assistant', content: '', notes: [], meta: null, pending: true };
   messages.push(reply);
   renderMessages();
   $('messages').scrollTop = $('messages').scrollHeight;
 
-  const body = { model: $('model').value || 'auto', messages: [...history, { role: 'user', content: text.trim() }], stream: true, aic: { source: 'chat' } };
+  const system = chat.system?.trim() ? [{ role: 'system', content: chat.system.trim() }] : [];
+  const body = { model: $('model').value || 'auto', messages: [...system, ...history, { role: 'user', content: apiContent(question) }], stream: true, aic: { source: 'chat' } };
+  saveChats();
   if ($('mode').value) body.aic.mode = $('mode').value;
   if ($('skill').value) body.aic.skill = $('skill').value;
 
@@ -619,9 +696,129 @@ async function send(text) {
   running = null;
   $('send').textContent = 'Send';
   $('send').classList.remove('stop');
-  store.set('aic.chat', messages.slice(-60));
+  saveChats();
   renderMessages();
   poll();
+}
+
+// ------------------------------------------------------------------ chats
+
+function saveChats() {
+  chat.messages = messages = messages.slice(-60);
+  chat.updated = Date.now();
+  const first = messages.find((m) => m.role === 'user');
+  if (!chat.title && first) chat.title = (first.content || first.files?.[0]?.name || 'Files').replace(/\s+/g, ' ').slice(0, 60);
+  chats.sort((a, b) => b.updated - a.updated);
+  // Keep the 40 most recent chats so local storage stays small.
+  if (chats.length > 40) chats = chats.filter((c, i) => i < 40 || c === chat);
+  store.set('aic.chats', chats);
+  store.set('aic.current', chat.id);
+  renderChatList();
+}
+
+function chatLabel(c) {
+  if (c.title) return c.title;
+  const first = c.messages.find((m) => m.role === 'user');
+  return first ? (first.content || first.files?.[0]?.name || 'Files').replace(/\s+/g, ' ').slice(0, 60) : 'New chat';
+}
+
+function renderChatList() {
+  const select = $('chat');
+  select.replaceChildren(...chats.map((c) => el('option', { value: c.id, text: chatLabel(c), selected: c === chat })));
+  $('delete').disabled = chats.length === 1 && !messages.length;
+  $('system').value = chat.system ?? '';
+  if (chat.system?.trim()) $('instructions').dataset.set = '';
+  else delete $('instructions').dataset.set;
+}
+
+function switchChat(target) {
+  if (running) running.abort();
+  chat = target;
+  messages = chat.messages;
+  attachments = [];
+  renderAttachments();
+  store.set('aic.current', chat.id);
+  renderChatList();
+  renderMessages();
+}
+
+function startNewChat() {
+  // An empty chat is reused rather than piling up empty ones.
+  const empty = chats.find((c) => !c.messages.length);
+  if (empty) {
+    switchChat(empty);
+  } else {
+    const c = newChat();
+    chats.unshift(c);
+    switchChat(c);
+  }
+  $('input').focus();
+}
+
+function exportChat() {
+  const lines = [`# ${chatLabel(chat)}`, '', `Exported from AI Compiler on ${new Date().toLocaleString()}.`, ''];
+  if (chat.system?.trim()) lines.push('**Instructions:** ' + chat.system.trim(), '');
+  for (const m of messages) {
+    if (m.role === 'user') {
+      lines.push('## You', '', m.content || '');
+      if (m.files?.length) lines.push('', `Attached: ${m.files.map((f) => f.name).join(', ')}`);
+    } else {
+      const meta = metaText(m);
+      lines.push(`## Assistant${meta ? ` (${meta})` : ''}`, '', m.content || (m.error ? `Error: ${m.error}` : ''));
+    }
+    lines.push('');
+  }
+  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }));
+  const name = `${(chat.title || 'chat').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'chat'}.md`;
+  const a = el('a', { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ------------------------------------------------------------ attachments
+
+const MAX_FILE = 200_000;
+
+async function addFiles(list) {
+  for (const file of list) {
+    if (file.size > MAX_FILE) {
+      toast(`${file.name} is too large to attach (over ${MAX_FILE / 1000} KB).`);
+      continue;
+    }
+    const text = await file.text();
+    if (text.includes('\0')) {
+      toast(`${file.name} looks like a binary file. Only text files can be attached.`);
+      continue;
+    }
+    attachments = [...attachments.filter((f) => f.name !== file.name), { name: file.name, text }];
+  }
+  renderAttachments();
+  $('input').focus();
+}
+
+function renderAttachments() {
+  const box = $('attachments');
+  box.hidden = !attachments.length;
+  box.replaceChildren(
+    ...attachments.map((f) =>
+      el(
+        'span',
+        { class: 'file-chip', title: `${f.text.length.toLocaleString()} characters` },
+        el('span', { text: `📎 ${f.name}` }),
+        el('button', { type: 'button', 'aria-label': `Remove ${f.name}`, text: '×', onclick: () => { attachments = attachments.filter((x) => x !== f); renderAttachments(); } }),
+      ),
+    ),
+  );
+}
+
+// ------------------------------------------------------------------ toasts
+
+function toast(text) {
+  const t = el('div', { class: 'toast', role: 'status', text });
+  $('toasts').append(t);
+  setTimeout(() => t.remove(), 5000);
 }
 
 // ------------------------------------------------------------------ wiring
@@ -640,6 +837,14 @@ $('input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
     $('composer').requestSubmit();
+  } else if (e.key === 'ArrowUp' && !e.target.value) {
+    // Recall the last thing you sent.
+    const last = [...messages].reverse().find((m) => m.role === 'user');
+    if (last) {
+      e.preventDefault();
+      e.target.value = last.content;
+      e.target.dispatchEvent(new Event('input'));
+    }
   }
 });
 $('input').addEventListener('input', (e) => {
@@ -647,15 +852,48 @@ $('input').addEventListener('input', (e) => {
   e.target.style.height = `${Math.min(e.target.scrollHeight + 2, 220)}px`;
 });
 document.addEventListener('keydown', (e) => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
   if (e.key === 'Escape' && running) running.abort();
+  else if (e.key === '/' && !typing) {
+    e.preventDefault();
+    $('input').focus();
+  } else if (e.altKey && e.code === 'KeyN') {
+    e.preventDefault();
+    startNewChat();
+  }
 });
 
-$('new').addEventListener('click', () => {
-  if (running) running.abort();
-  messages = [];
-  store.set('aic.chat', messages);
-  renderMessages();
-  $('input').focus();
+$('new').addEventListener('click', startNewChat);
+$('chat').addEventListener('change', (e) => switchChat(chats.find((c) => c.id === e.target.value) ?? chat));
+$('export').addEventListener('click', exportChat);
+$('delete').addEventListener('click', () => {
+  if (messages.length && !confirm(`Delete "${chat.title || 'this chat'}"? This cannot be undone.`)) return;
+  chats = chats.filter((c) => c !== chat);
+  if (!chats.length) chats = [newChat()];
+  store.set('aic.chats', chats);
+  switchChat(chats[0]);
+});
+$('system').addEventListener('input', (e) => {
+  chat.system = e.target.value;
+  saveChats();
+});
+$('attach').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', (e) => {
+  addFiles([...e.target.files]);
+  e.target.value = '';
+});
+const composer = $('composer');
+composer.addEventListener('dragover', (e) => {
+  if (![...(e.dataTransfer?.types ?? [])].includes('Files')) return;
+  e.preventDefault();
+  composer.classList.add('dragging');
+});
+composer.addEventListener('dragleave', () => composer.classList.remove('dragging'));
+composer.addEventListener('drop', (e) => {
+  composer.classList.remove('dragging');
+  if (!e.dataTransfer?.files?.length) return;
+  e.preventDefault();
+  addFiles([...e.dataTransfer.files]);
 });
 
 $('refresh').addEventListener('click', async (e) => {
@@ -679,6 +917,7 @@ for (const id of ['mode', 'skill', 'model']) {
 
 async function start() {
   $('mode').value = store.get('aic.mode', '');
+  renderChatList();
   renderMessages();
   await poll();
   try {

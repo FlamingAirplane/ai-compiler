@@ -404,9 +404,9 @@ Responses carry `x-aic-mode`, `x-aic-provider` and `x-aic-model` headers.
 
 It uses the running server when there is one, so its requests share the dashboard's counters; otherwise it loads the core itself. The project's `.mcp.json` registers it for Claude Code, and `.claude/skills/ai-compiler/SKILL.md` tells Claude Code when to use it and what never to send.
 
-**Command line.** The `aic` commands are `serve`, `ask`, `chat`, `status`, `check`, `keys`, `models`, `skills` and `mcp`. `ask` reads piped input, so `git diff | aic ask -s code-review` works. Progress goes to standard error and the answer to standard output, so the output can be piped on.
+**Command line.** The `aic` commands are `serve`, `ask`, `chat`, `status`, `usage`, `check`, `keys`, `models`, `skills`, `open` and `mcp`. `ask` reads piped input, so `git diff | aic ask -s code-review` works; `-f` attaches files (each in a fence longer than any backtick run inside it), and `--copy` copies the answer to the clipboard. Progress goes to standard error and the answer to standard output, so the output can be piped on.
 
-**Dashboard.** A single page with no framework. It polls `/api/status` every 4 seconds, and redraws countdowns every second from the server's clock. Model output is escaped before the small Markdown renderer adds any tags, and the page's content security policy allows only its own script. The conversation and selections are kept in the browser's local storage.
+**Dashboard.** A single page with no framework. It polls `/api/status` every 4 seconds, and redraws countdowns every second from the server's clock. Model output is escaped before the small Markdown renderer adds any tags, and the page's content security policy allows only its own script. Conversations (up to 40, each with its own instructions and attached files), and the selections, are kept in the browser's local storage. Text files are read in the browser and sent as part of the message, in a fence the model can tell apart from the question. Status polls double as change detection: a provider going from rate limited to ready, or having its key rejected, raises a short notice.
 
 ## Securing the local server
 
@@ -440,7 +440,7 @@ The data folder holds `models.json` (cached model lists) and `usage.json` (count
 
 ## Testing
 
-`npm test` runs 66 tests in about five seconds, with no network access and no keys. They run against `test/mock-upstream.js`, a single local server that pretends to be any number of OpenAI-compatible providers. Each pretend provider can be told to:
+`npm test` runs 67 tests in about five seconds, with no network access and no keys. They run against `test/mock-upstream.js`, a single local server that pretends to be any number of OpenAI-compatible providers. Each pretend provider can be told to:
 
 - require a particular key;
 - rate limit after N requests, with or without a retry time and rate-limit headers;
@@ -456,7 +456,7 @@ The data folder holds `models.json` (cached model lists) and `usage.json` (count
 | `core.test.js` | Fallback, rests and their expiry, header-driven rests, daily resets, rejected keys, error shapes, streaming, model-name routing, round-robin, cancellation. |
 | `harness.test.js` | Ensemble, refine, agent and panel, streaming progress, failure paths, skills, `skill:auto`, client tools passing through. |
 | `tools.test.js` | The calculator, the HTML reader, the network guard (including redirects), the workspace guard (including symlinks and secrets), and the code sandbox's network, read and write restrictions. |
-| `server.test.js` | The HTTP API, refusal of other websites and other hosts, saving keys, the Anthropic translation both ways, the MCP protocol and tools, and the CLI. |
+| `server.test.js` | The HTTP API, refusal of other websites and other hosts, saving keys, the Anthropic translation both ways, the MCP protocol and tools, and the CLI, including attached files and the usage report. |
 | `refine.test.js` | Behaviours specific to real providers: model size parsing, ranking with published scores, breadth-first order, shared model names, too-large requests, "limit: 0", fixed and rolling daily resets, unusable replies, waiting for quota, shared usage files, and the self-test. |
 
 What the tests cannot cover:
@@ -506,7 +506,7 @@ Ordered by how much each would help, within four groups. Effort is rough: **S** 
 12. **Run it all the time.** *(M)* Publish to npm (`npx ai-compiler`), and add a background service (launchd on macOS, systemd on Linux) and a Docker image, so tools can rely on it being there.
 13. **More endpoints.** *(M)* An embeddings endpoint (Gemini, Cohere, Mistral, NVIDIA and Cloudflare all have free embedding models), and image input routed only to vision models.
 14. **More for Claude Code and other agents.** *(M)* MCP tools that take file paths instead of pasted text, a `delegate` tool for batches of small jobs, and MCP prompts for the common skills.
-15. **Usage history.** *(S)* A chart of the last 35 days (the data is already kept), CSV export, and a notice when a provider's daily quota resets.
+15. **Usage history.** *(S)* The dashboard now charts 14 days and `aic usage` prints up to 35; CSV export and per-provider charts would be next.
 16. **More search options.** *(S)* A self-hosted SearXNG instance or other free search APIs alongside Tavily.
 
 ### Throughout: keep the code healthy

@@ -224,3 +224,25 @@ test('every shipped skill loads and has instructions', () => {
   const tools = new Set(core.tools.describe().map((t) => t.name));
   for (const s of skills) for (const t of s.tools ?? []) assert.ok(tools.has(t), `${s.name} lists unknown tool ${t}`);
 });
+
+test('the command line attaches files, shows usage, and reports a missing file', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'aic-cli-'));
+  writeFileSync(join(dir, 'notes.txt'), 'buy milk\n```\ncode inside\n```\n');
+  const { port, mock } = await setup({ alpha: { reply: 'got it' } });
+  const run = (args) => new Promise((resolve) => execFile(process.execPath, [join(import.meta.dirname, '..', 'src', 'cli.js'), ...args, '--port', String(port)], { timeout: 20000 }, (err, stdout, stderr) => resolve({ code: err?.code ?? 0, stdout, stderr })));
+
+  const asked = await run(['ask', '-f', join(dir, 'notes.txt'), 'What is in it?']);
+  assert.equal(asked.code, 0, asked.stderr);
+  const sent = mock.seen.at(-1).body.messages.at(-1).content;
+  assert.match(sent, /^What is in it\?\n\nFile: notes\.txt\n````\nbuy milk\n```\ncode inside\n```\n````$/, 'a longer fence wraps a file that contains one');
+
+  const usage = await run(['usage']);
+  assert.equal(usage.code, 0, usage.stderr);
+  assert.match(usage.stdout, /Day\s+Requests\s+Tokens/);
+  assert.match(usage.stdout, /\d{4}-\d{2}-\d{2}\s+1\s+15\s+█+\s+Alpha \(1\)/);
+
+  const missing = await run(['ask', '-f', join(dir, 'nope.txt'), 'hi']);
+  assert.equal(missing.code, 1);
+  assert.match(missing.stderr, /Cannot read .*nope\.txt/);
+});

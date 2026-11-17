@@ -38,7 +38,17 @@ node src/cli.js check
 
 ### Chat page
 
-`npm start`, then http://localhost:4141. Pick an effort level, optionally a skill, and type. The panel on the right shows each provider's state, what you have used today, and what is left where the provider reports it.
+`npm start`, then http://localhost:4141. Pick an effort level, optionally a skill, and type. The panel on the right shows each provider's state, what you have used today, what is left where the provider reports it, a 14-day usage chart, and the most recent requests.
+
+Conveniences:
+
+- **Saved chats.** Switch between up to 40 conversations from the Chat menu; Export downloads one as Markdown.
+- **Instructions per chat.** Open Instructions and write what every reply in that chat should follow ("answer in French", "keep it short").
+- **Attach text files.** Press **+** or drop files on the message box. They go with the next message.
+- **Edit, Regenerate, Copy.** Hover your message to edit it and resend; Regenerate asks again for a different answer; Copy is on every answer and code block.
+- **Keyboard.** `/` jumps to the message box, ↑ in an empty box recalls your last message, Esc stops a reply, Alt+N starts a new chat.
+- **Notices.** A short message pops up when a rate-limited provider is available again, or when a provider rejects its key.
+- **Test.** Each provider card has a Test button that sends one tiny request to prove the key works.
 
 ### Terminal
 
@@ -49,7 +59,13 @@ git diff | node src/cli.js ask -s code-review "Review this diff"
 node src/cli.js chat
 node src/cli.js status
 node src/cli.js check
+node src/cli.js usage
+node src/cli.js ask -f notes.txt -f todo.md "What is left to do?"
+node src/cli.js ask --copy "Write a commit message for: fix login timeout"
+node src/cli.js open
 ```
+
+`-f` attaches text files, `--copy` also puts the answer on the clipboard, `usage` shows requests and tokens per day, and `open` opens the dashboard.
 
 Run `npm link` once if you would rather type `aic` than `node src/cli.js`. `aic help` lists everything.
 
@@ -191,4 +207,4 @@ Environment variables: `AIC_PORT` (default 4141), `AIC_ENV_FILE`, `AIC_DATA_DIR`
 npm test
 ```
 
-66 tests run the router, harness, tools, sandbox, server and MCP server against simulated providers. What has not been tested is each real provider with a real key, because that needs your keys. The first request you send to each provider is that test; anything a provider does differently from the OpenAI-compatible standard will show up as an error on its card in the dashboard.
+67 tests run the router, harness, tools, sandbox, server and MCP server against simulated providers. What has not been tested is each real provider with a real key, because that needs your keys. The first request you send to each provider is that test; anything a provider does differently from the OpenAI-compatible standard will show up as an error on its card in the dashboard.

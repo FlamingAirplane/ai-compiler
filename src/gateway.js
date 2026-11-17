@@ -757,6 +757,7 @@ export class Core {
         limits: q.limits,
         lastUsed: q.lastUsed,
         lastError: q.lastError,
+        day: q.day,
         problem: configured ? this.providers.entry(p)?.error ?? null : null,
       };
     });

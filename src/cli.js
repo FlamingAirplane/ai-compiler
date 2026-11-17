@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync, statSync } from 'node:fs';
+import { basename } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { DEFAULT_PORT, VERSION } from './config.js';
 import { getBackend } from './backend.js';
 import { sseEvents, contentText } from './sse.js';
-import { fmtWait, stateLabel, statusTable, table } from './format.js';
+import { fmtNum, fmtWait, stateLabel, statusTable, table } from './format.js';
 
 const HELP = `AI Compiler ${VERSION}
 One endpoint for every free AI tier you have a key for.
@@ -14,6 +16,8 @@ Usage
   aic ask "question" [options]           ask once (also reads piped input)
   aic chat [options]                     chat in the terminal
   aic status [--json]                    quota and rate limits per provider
+  aic usage [--days 14]                  requests and tokens per day
+  aic open                               open the dashboard in your browser
   aic check [provider]                   send one tiny request through each provider to prove it works
   aic keys                               which providers have keys, and where to get them
   aic models                             every model name you can use
@@ -25,6 +29,8 @@ Options for ask and chat
   -s, --skill <name>  apply a skill, e.g. code-review, research, summarize ("auto" picks one)
   -m, --model <name>  exact route, e.g. groq or gemini/<model>
   --system <text>     system prompt
+  -f, --file <path>   attach a text file (repeat for several)
+  --copy              also copy the answer to the clipboard
   --json              print the raw JSON response
   --quiet             hide the progress lines
 
@@ -37,11 +43,13 @@ Examples
   aic ask "Explain DNS in two sentences"
   aic ask --mode boost "Compare SQLite and Postgres for a small web app"
   git diff | aic ask -s code-review "Review this diff"
+  aic ask -f notes.txt -f todo.md -s summarize "What is left to do?"
   aic ask --mode agent -s research "What changed in the latest Node.js release?"
 `;
 
-const VALUE_FLAGS = new Set(['port', 'host', 'mode', 'skill', 'model', 'system', 'workspace']);
-const ALIASES = { p: 'port', s: 'skill', m: 'model', h: 'help', v: 'version', q: 'quiet' };
+const VALUE_FLAGS = new Set(['port', 'host', 'mode', 'skill', 'model', 'system', 'workspace', 'file', 'days']);
+const LIST_FLAGS = new Set(['file']);
+const ALIASES = { p: 'port', s: 'skill', m: 'model', h: 'help', v: 'version', q: 'quiet', f: 'file' };
 
 function parseArgs(argv) {
   const flags = {};
@@ -58,7 +66,8 @@ function parseArgs(argv) {
       continue;
     }
     const name = ALIASES[m[1]] ?? m[1];
-    if (VALUE_FLAGS.has(name)) flags[name] = m[2] ?? argv[++i];
+    if (LIST_FLAGS.has(name)) (flags[name] ??= []).push(m[2] ?? argv[++i]);
+    else if (VALUE_FLAGS.has(name)) flags[name] = m[2] ?? argv[++i];
     else flags[name] = true;
   }
   return { flags, words };
@@ -165,13 +174,44 @@ function readStdin(firstChunkWithinMs) {
   });
 }
 
+/** Read files given with -f as fenced blocks the model can tell apart. */
+function readAttachments(paths = []) {
+  return paths.map((path) => {
+    let size;
+    try {
+      size = statSync(path).size;
+    } catch {
+      die(`Cannot read ${path}: no such file.`);
+    }
+    if (size > 1_000_000) die(`${path} is too large to attach (over 1 MB).`);
+    const text = readFileSync(path, 'utf8');
+    if (text.includes('\0')) die(`${path} looks like a binary file. Only text files can be attached.`);
+    let fence = '```';
+    while (text.includes(fence)) fence += '`';
+    return `File: ${basename(path)}\n${fence}\n${text.replace(/\n$/, '')}\n${fence}`;
+  });
+}
+
+/** Copy text with whatever clipboard tool this system has. */
+function copyToClipboard(text) {
+  const tools = process.platform === 'darwin' ? [['pbcopy']] : process.platform === 'win32' ? [['clip']] : [['wl-copy'], ['xclip', '-selection', 'clipboard'], ['xsel', '--clipboard', '--input']];
+  for (const [cmd, ...args] of tools) {
+    const r = spawnSync(cmd, args, { input: text });
+    if (!r.error && r.status === 0) return true;
+  }
+  return false;
+}
+
 async function ask(flags, words) {
   let prompt = words.join(' ').trim();
   if (!process.stdin.isTTY) {
-    const piped = (await readStdin(prompt ? 200 : 0)).trim();
+    const piped = (await readStdin(prompt || flags.file ? 200 : 0)).trim();
     if (piped) prompt = prompt ? `${prompt}\n\n${piped}` : piped;
   }
+  const files = readAttachments(flags.file);
+  if (!prompt && files.length) prompt = 'Please look at the attached files.';
   if (!prompt) die('Give it something to answer, for example:  aic ask "What is a closure?"');
+  if (files.length) prompt = [prompt, ...files].join('\n\n');
   const backend = await backendFor(flags);
   const messages = [...(flags.system ? [{ role: 'system', content: flags.system }] : []), { role: 'user', content: prompt }];
   const res = await backend.chat(requestBody(flags, messages, !flags.json));
@@ -181,10 +221,53 @@ async function ask(flags, words) {
     process.stdout.write(raw.endsWith('\n') ? raw : `${raw}\n`);
     ok = res.ok;
   } else {
-    ok = (await printStream(res, flags)) !== null;
+    const text = await printStream(res, flags);
+    ok = text !== null;
+    if (ok && flags.copy) console.error(dim(copyToClipboard(text) ? 'Copied to the clipboard.' : 'Could not find a clipboard tool to copy with.'));
   }
   backend.close();
   process.exit(ok ? 0 : 1);
+}
+
+async function usage(flags) {
+  const days = Math.min(Math.max(Number(flags.days) || 14, 1), 35);
+  const backend = await backendFor(flags);
+  const { providers } = await backend.status();
+  backend.close();
+  const byDay = new Map();
+  const add = (day, p, req, tok) => {
+    const d = byDay.get(day) ?? { requests: 0, tokens: 0, by: {} };
+    d.requests += req;
+    d.tokens += tok;
+    if (req) d.by[p.name] = (d.by[p.name] ?? 0) + req;
+    byDay.set(day, d);
+  };
+  for (const p of providers) {
+    for (const [day, h] of Object.entries(p.history ?? {})) add(day, p, h.requests, h.tokens);
+    if (p.day) add(p.day, p, p.today.requests, p.today.tokens);
+  }
+  const list = [...byDay.keys()].sort().slice(-days);
+  if (!list.some((d) => byDay.get(d).requests)) return console.log('No requests yet.');
+  const max = Math.max(...list.map((d) => byDay.get(d).requests));
+  const rows = [['Day', 'Requests', 'Tokens', '', 'Busiest provider']];
+  for (const day of list) {
+    const d = byDay.get(day);
+    const top = Object.entries(d.by).sort((a, b) => b[1] - a[1])[0];
+    rows.push([day, String(d.requests), fmtNum(d.tokens), '█'.repeat(Math.round((d.requests / max) * 20)) || '·', top ? `${top[0]} (${top[1]})` : '-']);
+  }
+  console.log(table(rows));
+  const totals = providers.filter((p) => p.total.requests).sort((a, b) => b.total.requests - a.total.requests);
+  if (totals.length) console.log(`\nAll time: ${totals.map((p) => `${p.name} ${p.total.requests}`).join(', ')}`);
+}
+
+async function open(flags) {
+  const port = Number(flags.port) || DEFAULT_PORT;
+  const url = `http://localhost:${port}`;
+  const up = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(800) }).then((r) => r.ok, () => false);
+  if (!up) die('AI Compiler is not running. Start it with "aic serve --open".');
+  const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
+  spawn(cmd, [url], { stdio: 'ignore', detached: true }).unref();
+  console.log(`Opened ${url}`);
 }
 
 async function chat(flags) {
@@ -246,7 +329,7 @@ async function serve(flags) {
   if (host !== '127.0.0.1' && host !== 'localhost') {
     console.log(`\n  Warning: listening on ${host}. Anyone who can reach this address can spend your free quota.`);
   }
-  if (flags.open) spawn('open', [url], { stdio: 'ignore', detached: true }).unref();
+  if (flags.open) spawn(process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open', [url], { stdio: 'ignore', detached: true }).unref();
   const stop = () => {
     core.close();
     server.close();
@@ -304,6 +387,10 @@ async function main() {
       return keys(flags);
     case 'check':
       return check(flags, words);
+    case 'usage':
+      return usage(flags);
+    case 'open':
+      return open(flags);
     case 'status': {
       const backend = await backendFor(flags);
       const status = await backend.status();
