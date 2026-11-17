@@ -1,0 +1,18 @@
+{
+  "name": "ai-compiler",
+  "version": "0.1.0",
+  "description": "One endpoint that spreads your prompts across every free AI API tier you have a key for, with quota tracking, automatic fallback, and a harness (ensemble, refine, agent tools, skills) that gets better answers out of free models.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "aic": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js serve",
+    "demo": "node scripts/demo.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

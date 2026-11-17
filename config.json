@@ -1,0 +1,19 @@
+{
+  "strategy": "priority",
+  "maxAttempts": 8,
+  "timeoutMs": 45000,
+  "waitForQuotaMs": 15000,
+  "harness": {
+    "boost": "ensemble",
+    "ensemble": {
+      "proposers": 3
+    },
+    "agent": {
+      "maxSteps": 8,
+      "workspace": null,
+      "allowWrite": false,
+      "allowCode": false,
+      "allowLocalNetwork": false
+    }
+  }
+}

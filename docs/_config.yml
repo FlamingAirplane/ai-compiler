@@ -1,0 +1,12 @@
+title: AI Compiler
+description: One local endpoint for every free AI tier you have a key for.
+repository: FlamingAirplane/ai-compiler
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+
+exclude:
+  - README.md

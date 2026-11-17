@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Compiler</title>
+<style>
+:root {
+  --bg: #f4f2ec; --panel: #fffdf8; --ink: #1d1c19; --muted: #6a675e; --line: #dedacd;
+  --accent: #0b6b62; --accent-ink: #ffffff; --soft: #e4efec; --code: #efece3;
+  --ok: #1a7f3c; --warn: #a15c07; --bad: #b3261e; --off: #a29e92;
+  --radius: 10px; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131312; --panel: #1b1b19; --ink: #eceae3; --muted: #9c998e; --line: #2e2d29;
+    --accent: #3fcbb8; --accent-ink: #06211d; --soft: #15302c; --code: #24231f;
+    --ok: #57d27f; --warn: #f0b24a; --bad: #ff7b72; --off: #5d5b54;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; grid-template-rows: auto 1fr; }
+button, select, textarea, input { font: inherit; color: inherit; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.top { display: flex; align-items: center; gap: 16px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.brand { display: flex; align-items: center; gap: 9px; }
+.mark { width: 18px; height: 18px; border-radius: 5px; background: conic-gradient(from 210deg, var(--accent), #d9a441, var(--accent)); }
+h1 { font-size: 16px; margin: 0; letter-spacing: -0.01em; }
+.summary { margin: 0; color: var(--muted); font-size: 13.5px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+main { display: grid; grid-template-columns: minmax(0, 1fr) 390px; min-height: 0; }
+.chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.messages { flex: 1; overflow-y: auto; padding: 22px max(18px, calc((100% - 780px) / 2)); display: flex; flex-direction: column; gap: 16px; }
+.msg { max-width: 100%; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; background: var(--soft); padding: 9px 13px; border-radius: 14px 14px 4px 14px; max-width: 85%; white-space: pre-wrap; }
+.msg.assistant .body > :first-child { margin-top: 0; }
+.msg.assistant .body > :last-child { margin-bottom: 0; }
+.body p { margin: 0.6em 0; }
+.body h3, .body h4 { margin: 1em 0 0.3em; font-size: 1em; }
+.body h3 { font-size: 1.06em; }
+.body ul, .body ol { margin: 0.5em 0; padding-left: 1.4em; }
+.body hr { border: 0; border-top: 1px solid var(--line); margin: 1em 0; }
+.body code { font-family: var(--mono); font-size: 0.9em; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+.body pre { background: var(--code); padding: 11px 13px; border-radius: 8px; overflow-x: auto; margin: 0.7em 0; }
+.body pre code { background: none; padding: 0; font-size: 12.8px; line-height: 1.45; }
+.body pre { position: relative; }
+.copy { position: absolute; top: 6px; right: 6px; font-size: 11.5px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 0.15s; }
+.body pre:hover .copy, .copy:focus-visible { opacity: 1; }
+@media (hover: none) { .copy { opacity: 1; } }
+.body .table { overflow-x: auto; margin: 0.7em 0; }
+.body table { border-collapse: collapse; font-size: 13.5px; min-width: 60%; }
+.body th, .body td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.body th { background: var(--code); font-weight: 600; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.acts { display: inline-flex; gap: 10px; }
+button.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-size: 12.5px; }
+button.link:hover { text-decoration: underline; }
+.meta { margin-top: 7px; font-size: 12.5px; color: var(--muted); }
+.steps { margin: 0 0 8px; padding: 0; list-style: none; font-size: 12.5px; color: var(--muted); font-family: var(--mono); }
+.steps li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.steps .ok::before { content: "✓ "; color: var(--ok); }
+.steps .no::before { content: "✗ "; color: var(--bad); }
+.steps .call::before { content: "→ "; color: var(--accent); }
+.err { color: var(--bad); }
+.typing::after { content: "▍"; animation: blink 1s steps(2) infinite; color: var(--accent); }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .typing::after { animation: none; } }
+
+.empty { margin: auto; max-width: 560px; text-align: center; color: var(--muted); }
+.empty h2 { color: var(--ink); font-size: 20px; margin: 0 0 6px; letter-spacing: -0.01em; }
+.empty ol { text-align: left; display: inline-block; margin: 12px 0; padding-left: 1.3em; }
+.starters { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 14px; }
+.starters button { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px; cursor: pointer; font-size: 13.5px; }
+.starters button:hover { border-color: var(--accent); }
+
+.composer { border-top: 1px solid var(--line); background: var(--panel); padding: 10px max(18px, calc((100% - 780px) / 2)) 14px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 13px; color: var(--muted); }
+.controls label { display: flex; align-items: center; gap: 6px; }
+select { background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 4px 7px; max-width: 190px; }
+.hint { margin: 6px 0 8px; font-size: 12.5px; color: var(--muted); min-height: 1.2em; }
+.entry { display: flex; gap: 8px; align-items: flex-end; }
+textarea { flex: 1; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 12px; max-height: 220px; }
+button.primary, #send { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: var(--radius); padding: 9px 18px; font-weight: 600; cursor: pointer; }
+#send.stop { background: var(--bad); color: #fff; }
+button.ghost { background: none; border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+button.ghost:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+.side { border-left: 1px solid var(--line); overflow-y: auto; padding: 16px; background: var(--bg); }
+.side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 4px 0 10px; }
+.side h2:not(:first-child) { margin-top: 22px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; }
+.card summary { list-style: none; cursor: pointer; padding: 10px 12px; }
+.card summary::-webkit-details-marker { display: none; }
+.row { display: flex; align-items: center; gap: 8px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--off); flex: none; }
+.dot.ready { background: var(--ok); } .dot.cooling, .dot.no_models, .dot.checking { background: var(--warn); } .dot.rejected, .dot.unreachable { background: var(--bad); }
+.pname { font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.pill.ready { color: var(--ok); } .pill.cooling { color: var(--warn); } .pill.rejected, .pill.unreachable { color: var(--bad); }
+.usage, .left { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.meter { height: 5px; background: var(--line); border-radius: 3px; margin-top: 7px; overflow: hidden; }
+.meter span { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+.meter.est span { background: repeating-linear-gradient(90deg, var(--accent) 0 5px, transparent 5px 8px); }
+.card .inner { padding: 0 12px 12px; font-size: 13px; }
+.note { color: var(--muted); margin: 0 0 9px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; }
+.chip { font-family: var(--mono); font-size: 11.5px; background: var(--code); padding: 2px 7px; border-radius: 5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.cool { opacity: 0.55; text-decoration: line-through; }
+.problem { color: var(--bad); margin: 0 0 9px; font-size: 12.5px; }
+.keyform { display: grid; gap: 7px; }
+.keyform input { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; font-family: var(--mono); font-size: 12.5px; }
+.keyform .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.keyform .primary { padding: 5px 12px; font-size: 13px; border-radius: 7px; }
+.result { font-size: 12.5px; color: var(--muted); }
+.tool { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.tool:first-child { border-top: 0; }
+.tool b { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+.tool .state { font-size: 12px; color: var(--ok); } .tool .state.off { color: var(--muted); }
+.tool .why { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; }
+.fine { color: var(--muted); font-size: 12px; margin-top: 16px; }
+.muted { color: var(--muted); font-size: 12.5px; margin: 4px 2px; }
+.actions.test { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; }
+.act { display: grid; grid-template-columns: auto auto 1fr; gap: 0 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.act:first-child { border-top: 0; }
+.act .when { color: var(--muted); font-variant-numeric: tabular-nums; }
+.act .src { color: var(--accent); }
+.act .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act .extra { grid-column: 1 / -1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act.bad .extra { color: var(--bad); }
+
+@media (max-width: 860px) {
+  body { display: block; height: auto; }
+  main { display: block; }
+  .chat { height: calc(100dvh - 48px); }
+  .side { border-left: 0; border-top: 1px solid var(--line); }
+  .summary { display: none; }
+  .top { justify-content: space-between; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="mark" aria-hidden="true"></span><h1>AI Compiler</h1></div>
+  <p id="summary" class="summary" aria-live="polite">Loading…</p>
+  <button id="refresh" class="ghost" type="button">Re-check providers</button>
+</header>
+<main>
+  <section class="chat" aria-label="Chat">
+    <div id="messages" class="messages" aria-live="polite"></div>
+    <form id="composer" class="composer">
+      <div class="controls">
+        <label>Effort
+          <select id="mode">
+            <option value="">Standard · 1 request</option>
+            <option value="boost">Boost</option>
+            <option value="ensemble">Ensemble</option>
+            <option value="refine">Draft, critique, revise</option>
+            <option value="agent">Agent with tools</option>
+            <option value="panel">Panel, side by side</option>
+          </select>
+        </label>
+        <label>Skill <select id="skill"><option value="">None</option></select></label>
+        <label>Model <select id="model"><option value="auto">Auto</option></select></label>
+        <button id="new" type="button" class="ghost">New chat</button>
+      </div>
+      <p id="hint" class="hint"></p>
+      <div class="entry">
+        <textarea id="input" rows="2" placeholder="Ask anything. Enter sends, Shift+Enter adds a line." aria-label="Message"></textarea>
+        <button id="send" type="submit">Send</button>
+      </div>
+    </form>
+  </section>
+  <aside class="side" aria-label="Free quota and tools">
+    <h2>Free quota</h2>
+    <div id="providers"></div>
+    <h2>Recent requests</h2>
+    <div id="activity" class="card" style="padding: 2px 12px"></div>
+    <h2>Agent tools</h2>
+    <div id="tools" class="card" style="padding: 2px 12px"></div>
+    <p class="fine">Keys are saved in the <code>.env</code> file on this computer and are only sent to the provider they belong to. Use one key per provider, from your own account. Some free tiers keep prompts for training, so do not paste secrets.</p>
+  </aside>
+</main>
+<script src="/app.js" defer></script>
+</body>
+</html>

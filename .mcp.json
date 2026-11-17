@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ai-compiler": {
+      "command": "node",
+      "args": ["src/cli.js", "mcp"]
+    }
+  }
+}

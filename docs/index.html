@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Compiler</title>
+<meta name="description" content="One local endpoint for every free AI tier you have a key for. It tracks your quota, falls back when a provider is rate limited, and gets better answers out of free models.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <a class="brand" href="./"><span class="mark" aria-hidden="true"></span>AI Compiler</a>
+    <nav aria-label="Site">
+      <a class="wide" href="#start">Get started</a>
+      <a class="wide" href="#tools">Use from tools</a>
+      <a href="design.html">How it works</a>
+      <a href="https://github.com/FlamingAirplane/ai-compiler">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <h1>Every free AI tier you have, <em>behind one endpoint.</em></h1>
+      <p class="lede">Add your free API keys for Gemini, Groq, OpenRouter, Mistral, GitHub Models and others. AI Compiler sends each prompt to a model that still has free quota, rests any provider that hits its limit, and moves on to the next. A harness on top gets better answers out of free models than any one of them gives alone.</p>
+      <div class="ctas">
+        <a class="button primary" href="#start">Get started</a>
+        <a class="button" href="design.html">How it works</a>
+        <a class="button" href="https://github.com/FlamingAirplane/ai-compiler">View on GitHub</a>
+      </div>
+      <figure class="shot">
+        <img src="assets/dashboard.png" width="800" height="500" alt="The AI Compiler chat page. A compiled answer with a comparison table sits on the left; on the right, cards show each provider's requests today, how many are left, and when its quota resets, above a list of recent requests.">
+      </figure>
+      <p class="caption">The chat page in demo mode: an ensemble answer compiled from three models, with each provider's quota on the right.</p>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>What it does</h2>
+      <p class="sub">It runs on your computer, needs only Node.js 22 or newer, and has no other dependencies.</p>
+      <div class="grid">
+        <div class="card"><h3>Uses every free tier</h3><p>Twelve providers out of the box. Each key you add is another free quota. Models are discovered from each provider's own list, so new ones appear on their own.</p></div>
+        <div class="card"><h3>Survives rate limits</h3><p>A provider that is out of quota rests until the time it gave, or until its daily reset, while the request goes to the next one. You only see an error when everything is spent.</p></div>
+        <div class="card"><h3>Better answers from free models</h3><p>Ask for boost and several models answer while a strong one compiles the result, or one drafts while another checks it. An agent mode can search the web and do exact arithmetic.</p></div>
+        <div class="card"><h3>36 skills</h3><p>Ready-made instructions for code review, debugging, tests, SQL, research with sources, summaries, translation, plans and more. Each is a Markdown file you can edit.</p></div>
+        <div class="card"><h3>Works with your tools</h3><p>An OpenAI-compatible API, an Anthropic-format API, an MCP server for Claude Code, a command line, and a chat page with a live quota dashboard.</p></div>
+        <div class="card"><h3>Careful by default</h3><p>It only answers your own computer, refuses requests from other websites, keeps keys in a private file, and keeps the agent away from your files unless you say otherwise.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>What happens to one prompt</h2>
+      <p class="sub">The router tries each provider's best models first, learns from every refusal, and keeps going until something answers.</p>
+      <ol class="flow">
+        <li><b>You ask</b><span>From the chat page, the command line, your code or an AI tool.</span></li>
+        <li class="bad"><b>Gemini: rate limited</b><span>It said to retry in 40 seconds, so that model rests for 40 seconds.</span></li>
+        <li class="bad"><b>Groq: too large</b><span>This model's token limit is too small, so the router moves on without resting it.</span></li>
+        <li class="good"><b>OpenRouter: answers</b><span>The reply streams back, and its tokens are counted.</span></li>
+        <li><b>You get the answer</b><span>It says which model answered and which were tried first.</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="block" id="start">
+    <div class="wrap">
+      <h2>Get started</h2>
+      <p class="sub">You need <a href="https://nodejs.org">Node.js 22</a> or newer.</p>
+      <div class="two">
+        <div>
+          <h3>Run it</h3>
+<pre><code>git clone https://github.com/FlamingAirplane/ai-compiler.git
+cd ai-compiler
+npm start</code></pre>
+          <p>Open <code>http://localhost:4141</code>. Open a provider on the right, follow "Get a free key", paste the key into the card, and press Save. One key is enough to start.</p>
+        </div>
+        <div>
+          <h3>Or try it without keys</h3>
+<pre><code>npm run demo</code></pre>
+          <p>Three pretend providers run on your computer so you can watch routing, rate limits, fallback and the harness work. Nothing goes to the internet.</p>
+          <h3>Check your keys</h3>
+<pre><code>node src/cli.js check</code></pre>
+          <p>Sends one tiny request through each provider you added and says which work.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="tools">
+    <div class="wrap">
+      <h2>Use it from your tools</h2>
+      <p class="sub">The model name picks the route: <code>auto</code>, <code>auto:fast</code>, a provider such as <code>groq</code>, a harness such as <code>boost</code>, or a skill such as <code>skill:code-review</code>.</p>
+      <div class="two">
+        <div>
+          <h3>Any OpenAI-compatible client</h3>
+<pre><code>from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:4141/v1",
+                api_key="unused")
+reply = client.chat.completions.create(
+    model="auto",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(reply.choices[0].message.content)</code></pre>
+        </div>
+        <div>
+          <h3>The command line</h3>
+<pre><code>aic ask "Explain DNS in two sentences"
+aic ask --mode boost "SQLite or Postgres?"
+git diff | aic ask -s code-review "Review this"
+aic status</code></pre>
+          <h3>Claude Code, as a helper</h3>
+<pre><code>claude mcp add --scope user ai-compiler \
+  -- node "$(pwd)/src/cli.js" mcp</code></pre>
+          <p>Run it in the project folder. Claude Code gets <code>ask</code>, <code>panel</code>, <code>quota_status</code> and <code>list_skills</code>, for second opinions and cheap first drafts.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>The harness</h2>
+      <p class="sub">These spend several free requests on one question, so they only run when you ask for them.</p>
+      <div class="table">
+        <table>
+          <thead><tr><th>Mode</th><th>What happens</th><th>Requests</th></tr></thead>
+          <tbody>
+            <tr><td><code>ensemble</code></td><td>Three different models answer in parallel. A strong model writes one answer from the best parts.</td><td>4</td></tr>
+            <tr><td><code>refine</code></td><td>One model drafts, a different one looks for mistakes, and the draft is corrected.</td><td>2 or 3</td></tr>
+            <tr><td><code>agent</code></td><td>The model calls tools (web search, Wikipedia, web pages, a calculator, and optionally your files or a code sandbox) before answering.</td><td>1 per round</td></tr>
+            <tr><td><code>panel</code></td><td>Several models' answers side by side, for you or another AI to judge.</td><td>3</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Providers</h2>
+      <p class="sub">Only free tiers that refill are included, and none needs a payment method, so nothing can be charged. Free tiers change often: these notes were checked in November 2026, and the app learns the real limits from each provider's responses rather than relying on them.</p>
+      <div class="table">
+        <table>
+          <thead><tr><th>Provider</th><th>Free tier</th></tr></thead>
+          <tbody>
+            <tr><td>Google Gemini</td><td>Flash and Gemma models with daily caps per model. Resets at midnight Pacific.</td></tr>
+            <tr><td>Groq</td><td>Per-model limits, reported around 30 requests a minute and 1,000 a day on larger models.</td></tr>
+            <tr><td>OpenRouter</td><td>Models ending in <code>:free</code>. About 50 requests a day across all of them.</td></tr>
+            <tr><td>GitHub Models</td><td>Free with a GitHub account and a token with Models access.</td></tr>
+            <tr><td>Mistral</td><td>A free mode with low limits, for evaluation.</td></tr>
+            <tr><td>Cerebras</td><td>Free access tightened in 2026; older accounts may still have it.</td></tr>
+            <tr><td>SambaNova</td><td>Free tier with per-model limits.</td></tr>
+            <tr><td>NVIDIA NIM</td><td>Free for NVIDIA Developer Program members.</td></tr>
+            <tr><td>Cloudflare Workers AI</td><td>About 10,000 neurons a day. Needs an account ID too.</td></tr>
+            <tr><td>Cohere</td><td>Trial keys, about 1,000 calls a month, non-commercial use.</td></tr>
+            <tr><td>Hugging Face</td><td>A small monthly credit for Inference Providers.</td></tr>
+            <tr><td>Ollama</td><td>Models on your own computer. Unlimited, used last.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <h2>Fair use and privacy</h2>
+      <div class="grid">
+        <div class="card"><h3>One key per provider</h3><p>It adds up the free tiers of different providers. It never rotates several accounts on one provider, which would break their terms.</p></div>
+        <div class="card"><h3>Mind what you send</h3><p>Several free tiers keep prompts to improve their models. Do not send secrets or private data through it.</p></div>
+        <div class="card"><h3>Your keys stay yours</h3><p>Keys live in a private file on your computer and only ever go to the provider they belong to.</p></div>
+      </div>
+      <p class="note" style="margin-top:18px">Status: AI Compiler passes 66 automated tests against simulated providers and has been checked against the public model lists of real ones. Each real provider's first request is its live test; <code>aic check</code> makes that request for you. See <a href="design.html#known-limitations">known limitations</a>.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>AI Compiler</span>
+    <a href="design.html">How it works, and how it could be improved</a>
+    <a href="https://github.com/FlamingAirplane/ai-compiler">Source on GitHub</a>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# API keys live here. Never commit this file.
+.env
+.env.*
+!.env.example
+
+# Usage counters and cached model lists
+data/
+
+node_modules/
+.DS_Store
