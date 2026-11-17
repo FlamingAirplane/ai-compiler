@@ -37,9 +37,38 @@ function readBody(req) {
   });
 }
 
+// A 1x1 PNG, enough to pass as a real image.
+export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
 export async function startMock(behaviors) {
   const hits = {};
   const seen = [];
+
+  // Image endpoints live at /<id>/img/<model or prompt>. image.format is
+  // 'binary' (raw PNG), 'cloudflare' ({ result: { image } }) or 'nvidia'
+  // ({ artifacts: [{ base64 }] }); image.limit, image.retryAfter, image.status,
+  // image.message and image.filtered make it refuse.
+  async function serveImage(pid, img, req, res, send) {
+    const key = `${pid}:img`;
+    const count = (hits[key] = (hits[key] ?? 0) + 1);
+    const body = req.method === 'POST' ? await readBody(req) : {};
+    seen.push({ pid, image: true, url: req.url, body });
+    if (img.key && req.headers.authorization !== `Bearer ${img.key}`) return send(401, { error: { message: 'Invalid token' } });
+    if (img.status) return send(img.status, { error: { message: img.message ?? 'image upstream failed' } });
+    if (img.limit != null && count > img.limit) {
+      return send(img.limitStatus ?? 429, { error: { message: img.message ?? 'Rate limit exceeded' } }, img.retryAfter != null ? { 'retry-after': String(img.retryAfter) } : {});
+    }
+    if (img.filtered) return send(200, { artifacts: [{ base64: '', finishReason: 'CONTENT_FILTERED' }] });
+    if (img.delayMs) await new Promise((r) => setTimeout(r, img.delayMs));
+    if (img.make) {
+      res.writeHead(200, { 'content-type': 'image/png' });
+      return res.end(img.make(body));
+    }
+    if (img.format === 'cloudflare') return send(200, { result: { image: PNG.toString('base64') }, success: true });
+    if (img.format === 'nvidia') return send(200, { artifacts: [{ base64: PNG.toString('base64'), finishReason: 'SUCCESS' }] });
+    res.writeHead(200, { 'content-type': 'image/png' });
+    res.end(PNG);
+  }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const server = createServer(async (req, res) => {
@@ -50,6 +79,7 @@ export async function startMock(behaviors) {
       res.writeHead(status, { 'content-type': 'application/json', ...headers });
       res.end(JSON.stringify(body));
     };
+    if (b && v1 === 'img') return serveImage(pid, b.image ?? {}, req, res, send);
     if (!b || v1 !== 'v1') return send(404, { error: { message: 'no such provider' } });
     if (b.key && req.headers.authorization !== `Bearer ${b.key}`) return send(401, { error: { message: 'Invalid API key' } });
 
@@ -135,6 +165,10 @@ export async function startMock(behaviors) {
           ...(extra[id] ?? {}),
         })),
       };
+    },
+    /** Image provider catalog entries pointing at this mock. */
+    imageCatalog(ids, extra = {}) {
+      return ids.map((id) => ({ id, name: id[0].toUpperCase() + id.slice(1), kind: 'huggingface', url: `${base}/${id}/img/{model}`, keyEnv: `${id.toUpperCase()}_KEY`, models: ['m1'], ...(extra[id] ?? {}) }));
     },
     /** Environment with a key set for every provider (or only the listed ones). */
     env(only = Object.keys(behaviors)) {

@@ -18,6 +18,7 @@ Usage
   aic status [--json]                    quota and rate limits per provider
   aic usage [--days 14]                  requests and tokens per day
   aic open                               open the dashboard in your browser
+  aic image "prompt" [options]           make images on free image tiers
   aic check [provider]                   send one tiny request through each provider to prove it works
   aic keys                               which providers have keys, and where to get them
   aic models                             every model name you can use
@@ -34,6 +35,15 @@ Options for ask and chat
   --json              print the raw JSON response
   --quiet             hide the progress lines
 
+Options for image
+  --size <WxH>        1024x1024 (default), 768x1024, 1024x768, 512x512
+  -n <count>          1 to 4 images
+  -o, --out <path>    where to save (a file for one image, or a folder)
+  -m, --model <name>  a provider, e.g. cloudflare, or cloudflare/<model>
+  --seed <number>     repeatable results where the provider supports it
+  --enhance           let a free chat model improve the prompt first
+  --open              open the image when it is ready
+
 Agent tool permissions (serve, ask, chat, mcp; or set them in config.json)
   --workspace <dir>   let the agent read files in this folder
   --allow-write       let the agent write files in the workspace
@@ -47,9 +57,9 @@ Examples
   aic ask --mode agent -s research "What changed in the latest Node.js release?"
 `;
 
-const VALUE_FLAGS = new Set(['port', 'host', 'mode', 'skill', 'model', 'system', 'workspace', 'file', 'days']);
+const VALUE_FLAGS = new Set(['port', 'host', 'mode', 'skill', 'model', 'system', 'workspace', 'file', 'days', 'size', 'n', 'out', 'seed']);
 const LIST_FLAGS = new Set(['file']);
-const ALIASES = { p: 'port', s: 'skill', m: 'model', h: 'help', v: 'version', q: 'quiet', f: 'file' };
+const ALIASES = { p: 'port', s: 'skill', m: 'model', h: 'help', v: 'version', q: 'quiet', f: 'file', o: 'out' };
 
 function parseArgs(argv) {
   const flags = {};
@@ -260,6 +270,38 @@ async function usage(flags) {
   if (totals.length) console.log(`\nAll time: ${totals.map((p) => `${p.name} ${p.total.requests}`).join(', ')}`);
 }
 
+async function image(flags, words) {
+  const prompt = words.join(' ').trim();
+  if (!prompt) die('Say what to draw, for example:  aic image "a lighthouse at dusk, watercolor"');
+  const backend = await backendFor(flags);
+  console.error(dim('Making the image. Free image tiers can take a minute or two…'));
+  let out;
+  try {
+    out = await backend.image({ prompt, size: flags.size, n: flags.n, model: flags.model, seed: flags.seed, aic: { source: 'cli', enhance: !!flags.enhance } });
+  } catch (err) {
+    die(`Error: ${err.message}${err.retryAt ? ` Free image quota is back in about ${fmtWait(Date.parse(err.retryAt) - Date.now())}.` : ''}`);
+  }
+  backend.close();
+  if (out.revisedPrompt) console.error(dim(`Prompt used: ${out.revisedPrompt}`));
+  const { existsSync, mkdirSync, statSync: st, writeFileSync } = await import('node:fs');
+  const { join: joinPath, extname } = await import('node:path');
+  const slug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'image';
+  const target = flags.out ?? '.';
+  const isDir = out.images.length > 1 || (existsSync(target) && st(target).isDirectory()) || !extname(target);
+  if (isDir) mkdirSync(target, { recursive: true });
+  const paths = [];
+  out.images.forEach((img, i) => {
+    const ext = img.mime === 'image/png' ? 'png' : img.mime === 'image/webp' ? 'webp' : 'jpg';
+    const path = isDir ? joinPath(target, `${slug}${out.images.length > 1 ? `-${i + 1}` : ''}.${ext}`) : target;
+    writeFileSync(path, Buffer.from(img.b64, 'base64'));
+    paths.push(path);
+    console.log(path);
+    console.error(dim(`  ${img.providerName ?? img.provider} · ${img.model} · ${img.width}x${img.height}`));
+  });
+  if (out.partial) console.error(out.partial);
+  if (flags.open) for (const p of paths) spawn(process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open', [p], { stdio: 'ignore', detached: true }).unref();
+}
+
 async function open(flags) {
   const port = Number(flags.port) || DEFAULT_PORT;
   const url = `http://localhost:${port}`;
@@ -387,6 +429,8 @@ async function main() {
       return keys(flags);
     case 'check':
       return check(flags, words);
+    case 'image':
+      return image(flags, words);
     case 'usage':
       return usage(flags);
     case 'open':

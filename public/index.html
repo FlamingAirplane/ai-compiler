@@ -148,6 +148,29 @@ button.attach { font-size: 20px; line-height: 1; padding: 8px 13px; border-radiu
 .bars span.zero { background: var(--line); }
 .bars span.today { opacity: 1; outline: 1px solid var(--accent); outline-offset: 1px; }
 .usage-card .totals { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 7px; }
+.tabs { display: flex; gap: 4px; padding: 8px max(18px, calc((100% - 780px) / 2)) 0; border-bottom: 1px solid var(--line); }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 12px 8px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.chat-view { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.images { flex: 1; overflow-y: auto; padding: 16px max(18px, calc((100% - 980px) / 2)) 28px; }
+.images[hidden], .chat-view[hidden] { display: none; }
+.img-form textarea { width: 100%; resize: vertical; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.img-form .controls { margin-top: 8px; }
+.img-form label.check { gap: 6px; cursor: pointer; }
+.img-form .primary { margin-left: auto; padding: 7px 18px; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; margin-top: 8px; }
+.shot { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
+.shot a.pic { display: block; background: var(--code); aspect-ratio: 1; }
+.shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shot figcaption { padding: 9px 11px 10px; font-size: 12.5px; display: grid; gap: 4px; }
+.shot .p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: var(--ink); }
+.shot .m { color: var(--muted); }
+.shot .acts { display: flex; flex-wrap: wrap; gap: 10px; }
+.shot.pending .pic { display: grid; place-items: center; color: var(--muted); font-size: 13px; background: linear-gradient(100deg, var(--code) 30%, var(--panel) 50%, var(--code) 70%); background-size: 300% 100%; animation: shimmer 1.6s linear infinite; }
+.shot.failed .pic { display: grid; place-items: center; color: var(--bad); padding: 14px; text-align: center; font-size: 13px; background: var(--panel); }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .shot.pending .pic { animation: none; } }
+.gallery .empty-note { grid-column: 1 / -1; color: var(--muted); text-align: center; padding: 30px 10px; }
 .toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: grid; gap: 8px; z-index: 20; width: min(420px, calc(100% - 32px)); }
 .toast { background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 13.5px; box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
 .muted { color: var(--muted); font-size: 12.5px; margin: 4px 2px; }
@@ -177,7 +200,35 @@ button.attach { font-size: 20px; line-height: 1; padding: 8px 13px; border-radiu
   <button id="refresh" class="ghost" type="button">Re-check providers</button>
 </header>
 <main>
-  <section class="chat" aria-label="Chat">
+  <section class="chat" aria-label="Chat and images">
+    <div class="tabs" role="tablist" aria-label="View">
+      <button id="tabChat" role="tab" type="button" aria-selected="true" aria-controls="chatView">Chat</button>
+      <button id="tabImages" role="tab" type="button" aria-selected="false" aria-controls="imagesView">Images</button>
+    </div>
+    <div id="imagesView" class="images" role="tabpanel" aria-labelledby="tabImages" hidden>
+      <form id="imgForm" class="img-form">
+        <textarea id="imgPrompt" rows="3" placeholder="Describe the image: the subject, the style, the light. Enter generates." aria-label="Image prompt"></textarea>
+        <div class="controls">
+          <label>Size
+            <select id="imgSize">
+              <option value="1024x1024">Square</option>
+              <option value="768x1024">Portrait</option>
+              <option value="1024x768">Landscape</option>
+              <option value="512x512">Small, faster</option>
+            </select>
+          </label>
+          <label>Count
+            <select id="imgCount"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+          </label>
+          <label>Provider <select id="imgModel"><option value="auto">Auto</option></select></label>
+          <label class="check" title="A free chat model rewrites your idea as a detailed image prompt. Uses one free chat request."><input type="checkbox" id="imgEnhance"> Improve my prompt</label>
+          <button id="imgGo" type="submit" class="primary">Generate</button>
+        </div>
+        <p id="imgHint" class="hint"></p>
+      </form>
+      <div id="gallery" class="gallery" aria-live="polite"></div>
+    </div>
+    <div id="chatView" class="chat-view" role="tabpanel" aria-labelledby="tabChat">
     <div class="chatbar">
       <label class="pick">Chat <select id="chat" aria-label="Saved chats"></select></label>
       <button id="new" type="button" class="ghost" title="New chat (Alt+N)">New</button>
@@ -213,6 +264,7 @@ button.attach { font-size: 20px; line-height: 1; padding: 8px 13px; border-radiu
         <button id="send" type="submit">Send</button>
       </div>
     </form>
+    </div>
   </section>
   <aside class="side" aria-label="Free quota and tools">
     <h2>Free quota</h2>

@@ -17,6 +17,7 @@ This document explains the design of AI Compiler in enough detail to change it w
 - [Handling failure](#handling-failure)
 - [Tracking quota](#tracking-quota)
 - [The harness](#the-harness)
+- [Images](#images)
 - [Skills](#skills)
 - [Agent tools and their safety limits](#agent-tools-and-their-safety-limits)
 - [The interfaces](#the-interfaces)
@@ -329,6 +330,29 @@ flowchart LR
 
 Panel is the ensemble's first stage on its own: the answers come back under "Answer 1: provider · model" headings. It is the most useful mode for another AI. Claude Code can judge several independent answers itself better than a free model can compile them.
 
+## Images
+
+`src/images.js` applies the same idea to image generation. Image APIs are not standardised the way chat is, so each provider in `providers.json` under `imageProviders` has a `kind` that says how to ask and how to read the answer:
+
+| Kind | Request | Answer |
+| --- | --- | --- |
+| `cloudflare` | `POST /ai/run/<model>`; FLUX takes only a prompt and steps | JSON with a base64 image (FLUX), or raw bytes (Stable Diffusion) |
+| `nvidia` | `POST /v1/genai/<model>` with size, seed and steps | JSON `artifacts[0].base64`, with a finish reason that reports the safety filter |
+| `huggingface` | `POST /hf-inference/models/<model>` with `inputs` and size | Raw bytes |
+| `pollinations` | `GET /prompt/<prompt>?width&height&seed&private=true` | Raw bytes; no key |
+
+Whatever comes back is checked by its first bytes (PNG, JPEG or WebP), so an error page can never be saved as a picture.
+
+Failures follow the chat rules, simplified:
+
+- **Rate limits.** A 429, a 403 about quota, or any reply saying "limit reached" or "retry after N s" rests the whole provider. It rests for the time the provider gave, or until its daily reset for daily or neuron quotas, or for one minute.
+- **Rejected keys.** A rejected key rests the provider for 12 hours, or until the key changes.
+- **Missing models.** A missing model rests for 6 hours.
+- **Safety filter.** A safety-filter refusal moves on, and two refusals stop the request.
+- **Waiting.** If every image tier is resting but one is back within 60 seconds (`images.waitForQuotaMs`), the request waits for it. Pollinations allows about one image every 45 seconds per computer, so short waits are common.
+
+`Core.generateImages()` makes 1 to 4 images one after another, which is kinder to per-minute limits than firing them at once. It can first ask a fast chat model to turn the user's idea into a detailed prompt. It saves each image with its prompt, provider, model, size and seed in `data/images` (the newest 300 are kept), and returns them as base64 as well. The server exposes the OpenAI-style `POST /v1/images/generations`, the saved files under `/images/<file>`, a list at `GET /api/images`, and `POST /api/images/delete`. The CLI has `aic image`, and the MCP server returns the image itself from `generate_image`, so an MCP client can show it.
+
 ## Skills
 
 Skills live in `skills/` as Markdown files: a few settings between `---` lines, then the instructions.
@@ -440,7 +464,7 @@ The data folder holds `models.json` (cached model lists) and `usage.json` (count
 
 ## Testing
 
-`npm test` runs 67 tests in about five seconds, with no network access and no keys. They run against `test/mock-upstream.js`, a single local server that pretends to be any number of OpenAI-compatible providers. Each pretend provider can be told to:
+`npm test` runs 74 tests in about five seconds, with no network access and no keys. They run against `test/mock-upstream.js`, a single local server that pretends to be any number of OpenAI-compatible providers. Each pretend provider can be told to:
 
 - require a particular key;
 - rate limit after N requests, with or without a retry time and rate-limit headers;
@@ -457,6 +481,7 @@ The data folder holds `models.json` (cached model lists) and `usage.json` (count
 | `harness.test.js` | Ensemble, refine, agent and panel, streaming progress, failure paths, skills, `skill:auto`, client tools passing through. |
 | `tools.test.js` | The calculator, the HTML reader, the network guard (including redirects), the workspace guard (including symlinks and secrets), and the code sandbox's network, read and write restrictions. |
 | `server.test.js` | The HTTP API, refusal of other websites and other hosts, saving keys, the Anthropic translation both ways, the MCP protocol and tools, and the CLI, including attached files and the usage report. |
+| `images.test.js` | Image fallback and rests, each provider kind's request and answer format, safety refusals, waiting for a busy free service, saved files, the image API, the MCP image tool, and `aic image`. |
 | `refine.test.js` | Behaviours specific to real providers: model size parsing, ranking with published scores, breadth-first order, shared model names, too-large requests, "limit: 0", fixed and rolling daily resets, unusable replies, waiting for quota, shared usage files, and the self-test. |
 
 What the tests cannot cover:

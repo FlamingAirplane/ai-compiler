@@ -18,6 +18,8 @@ export const DEFAULT_CONFIG = {
   waitForQuotaMs: 15000,
   // Routes used for Claude model names on the Anthropic-format endpoint.
   anthropicModels: { default: 'auto', small: 'auto:fast' },
+  // Image tiers are slow and some allow one image a minute, so image requests may wait longer.
+  images: { waitForQuotaMs: 60000 },
   harness: {
     // Which harness the model name "boost" runs when a skill does not say otherwise.
     boost: 'ensemble',

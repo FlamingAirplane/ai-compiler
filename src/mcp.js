@@ -58,6 +58,21 @@ const TOOLS = [
     description: 'List the skills (task-specific instruction presets) that ask and panel accept.',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'generate_image',
+    description:
+      'Generate an image from a text prompt on free image tiers (Cloudflare, NVIDIA, Hugging Face, or the keyless Pollinations service). ' +
+      'Returns the image and the path it was saved to. Can take up to a minute or two on free tiers. The prompt goes to third-party services, so do not include private data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'What to draw: subject, style, composition.' },
+        size: { type: 'string', description: 'WIDTHxHEIGHT, for example 1024x1024 (default), 768x1024 or 1024x768.' },
+        enhance: { type: 'boolean', description: 'Let a free chat model expand the prompt first. Costs one free chat request.' },
+      },
+      required: ['prompt'],
+    },
+  },
 ];
 
 function footer(meta) {
@@ -101,6 +116,17 @@ async function callTool(name, args, opts) {
       if (!skills.length) return 'No skills are installed.';
       return skills.map((s) => `${s.name}${s.mode !== 'single' ? ` (${s.mode})` : ''}: ${s.description}`).join('\n');
     }
+    case 'generate_image': {
+      const prompt = String(args?.prompt ?? '').trim();
+      if (!prompt) throw new Error('"prompt" is required.');
+      const out = await backend.image({ prompt, size: args.size, aic: { source: 'mcp', enhance: !!args.enhance } });
+      const img = out.images[0];
+      const where = img.file ? `Saved as data/images/${img.file} in the AI Compiler folder${backend.kind === 'server' ? `, and at ${backend.where}/images/${img.file}` : ''}.` : '';
+      return [
+        { type: 'image', data: img.b64, mimeType: img.mime },
+        { type: 'text', text: [`Made with ${img.providerName ?? img.provider} (${img.model}), ${img.width}x${img.height}. ${where}`, out.revisedPrompt ? `Prompt used: ${out.revisedPrompt}` : ''].filter(Boolean).join('\n') },
+      ];
+    }
     default:
       throw new Error(`Unknown tool "${name}".`);
   }
@@ -129,7 +155,8 @@ export async function handleMessage(msg, opts = {}) {
       return reply({ tools: TOOLS });
     case 'tools/call':
       try {
-        return reply({ content: [{ type: 'text', text: await callTool(params?.name, params?.arguments ?? {}, opts) }] });
+        const out = await callTool(params?.name, params?.arguments ?? {}, opts);
+        return reply({ content: typeof out === 'string' ? [{ type: 'text', text: out }] : out });
       } catch (err) {
         return reply({ content: [{ type: 'text', text: `Error: ${err?.message ?? err}` }], isError: true });
       }

@@ -50,6 +50,25 @@ Conveniences:
 - **Notices.** A short message pops up when a rate-limited provider is available again, or when a provider rejects its key.
 - **Test.** Each provider card has a Test button that sends one tiny request to prove the key works.
 
+### Images
+
+Open the **Images** tab, describe the picture, and press Generate. Each image goes to the first free image tier with quota, the same way chat does, and is saved in `data/images` on this computer. Pick a size (square, portrait, landscape, small), make up to four at once, choose a provider, or tick **Improve my prompt** to have a free chat model expand your idea first (one free chat request).
+
+| Provider | Free tier | Key |
+| --- | --- | --- |
+| Pollinations | One image every 45 seconds or so per computer; slow when busy; adds a small watermark | None: works straight away |
+| Cloudflare Workers AI | FLUX schnell and Stable Diffusion out of the daily free allowance | The same token and account ID as for chat |
+| NVIDIA NIM | FLUX models, rate limited | The same key as for chat |
+| Hugging Face | FLUX schnell and SDXL, from the small monthly credit | The same token as for chat |
+
+Gemini and OpenRouter have no free image models. Pollinations needs no account, so prompts go to a free community service; images are requested as private so they stay off its public feed. Set `"enabled": false` on it in `providers.json` to turn it off.
+
+```bash
+node src/cli.js image "a lighthouse at dusk, watercolor" --size 1024x768 -n 2 -o pictures/
+```
+
+From code, `POST /v1/images/generations` takes the OpenAI format (`prompt`, `n`, `size`, `response_format` of `b64_json` or `url`). The MCP server has a `generate_image` tool, so Claude Code can make images too.
+
 ### Terminal
 
 ```bash
@@ -207,4 +226,4 @@ Environment variables: `AIC_PORT` (default 4141), `AIC_ENV_FILE`, `AIC_DATA_DIR`
 npm test
 ```
 
-67 tests run the router, harness, tools, sandbox, server and MCP server against simulated providers. What has not been tested is each real provider with a real key, because that needs your keys. The first request you send to each provider is that test; anything a provider does differently from the OpenAI-compatible standard will show up as an error on its card in the dashboard.
+74 tests run the router, harness, tools, sandbox, server and MCP server against simulated providers. What has not been tested is each real provider with a real key, because that needs your keys. The first request you send to each provider is that test; anything a provider does differently from the OpenAI-compatible standard will show up as an error on its card in the dashboard.

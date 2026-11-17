@@ -135,6 +135,13 @@ export function createServer(core, { allowedHosts = [] } = {}) {
         return sendJson(res, 200, core.status());
       }
       if (path === '/api/skills') return sendJson(res, 200, { skills: core.skillList() });
+      if (path === '/api/images') return sendJson(res, 200, { images: core.imageStore?.list() ?? [] });
+      if (path.startsWith('/images/')) {
+        const found = core.imageStore?.read(decodeURIComponent(path.slice(8)));
+        if (!found) return sendJson(res, 404, fail('not_found', 'No such image.'));
+        res.writeHead(200, { 'content-type': found.entry.mime, 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' });
+        return res.end(found.data);
+      }
       if (path === '/v1/models') {
         await core.ready();
         return sendJson(res, 200, core.models());
@@ -172,6 +179,26 @@ export function createServer(core, { allowedHosts = [] } = {}) {
         }
       case '/api/refresh':
         return sendJson(res, 200, await core.refresh());
+      case '/v1/images/generations':
+        try {
+          if (body && typeof body === 'object' && !body.aic?.source) body.aic = { ...(body.aic ?? {}), source: 'api' };
+          const out = await core.generateImages(body, { signal: ac.signal });
+          const asUrl = body.response_format === 'url';
+          return sendJson(res, 200, {
+            created: Math.floor(Date.now() / 1000),
+            data: out.images.map((img) =>
+              asUrl && img.file ? { url: `http://${req.headers.host}/images/${img.file}`, revised_prompt: out.revisedPrompt ?? undefined } : { b64_json: img.b64, revised_prompt: out.revisedPrompt ?? undefined },
+            ),
+            aic: { prompt: out.prompt, revisedPrompt: out.revisedPrompt, partial: out.partial, attempts: out.attempts, images: out.images.map(({ b64, ...meta }) => meta) },
+          });
+        } catch (err) {
+          if (!err.failure) throw err;
+          const f = err.failure;
+          const headers = f.retryAt ? { 'retry-after': String(Math.max(1, Math.ceil((f.retryAt - Date.now()) / 1000))) } : {};
+          return sendJson(res, f.status ?? 502, { error: { message: f.message, type: 'aic_error', code: f.code, attempts: f.attempts ?? [], retry_at: f.retryAt ? new Date(f.retryAt).toISOString() : null } }, headers);
+        }
+      case '/api/images/delete':
+        return sendJson(res, core.imageStore?.remove(String(body.file ?? '')) ? 200 : 404, { ok: true, images: core.imageStore?.list() ?? [] });
       case '/api/test':
         try {
           const results = body.provider ? [await core.testProvider(String(body.provider), { signal: ac.signal })] : await core.testAll({ signal: ac.signal });

@@ -184,7 +184,7 @@ test('the MCP server answers the protocol and runs its tools through the local s
   assert.equal((await rpc('nope')).error.code, -32601);
 
   const tools = (await rpc('tools/list')).result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['ask', 'panel', 'quota_status', 'list_skills']);
+  assert.deepEqual(tools.map((t) => t.name), ['ask', 'panel', 'quota_status', 'list_skills', 'generate_image']);
   for (const t of tools) assert.equal(t.inputSchema.type, 'object');
 
   const call = async (name, args) => (await rpc('tools/call', { name, arguments: args })).result;

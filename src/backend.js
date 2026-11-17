@@ -20,6 +20,12 @@ export async function getBackend({ port = DEFAULT_PORT, coreOptions = {} } = {})
         status: () => get('/api/status'),
         models: () => get('/v1/models'),
         skills: async () => (await get('/api/skills')).skills,
+        image: async (body) => {
+          const res = await fetch(`${base}/v1/images/generations`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, response_format: 'b64_json' }) });
+          const data = await res.json();
+          if (!res.ok) throw Object.assign(new Error(data?.error?.message ?? `HTTP ${res.status}`), { retryAt: data?.error?.retry_at });
+          return { ...data.aic, images: data.aic.images.map((meta, i) => ({ ...meta, b64: data.data[i].b64_json })) };
+        },
         test: async (provider) => {
           const res = await fetch(`${base}/api/test`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(provider ? { provider } : {}) });
           const data = await res.json();
@@ -43,6 +49,13 @@ export async function getBackend({ port = DEFAULT_PORT, coreOptions = {} } = {})
     models: async () => core.models(),
     skills: async () => core.skillList(),
     test: async (provider) => (provider ? [await core.testProvider(provider)] : core.testAll()),
+    image: async (body) => {
+      try {
+        return await core.generateImages(body);
+      } catch (err) {
+        throw Object.assign(new Error(err.message), { retryAt: err.failure?.retryAt ? new Date(err.failure.retryAt).toISOString() : null });
+      }
+    },
     close: () => core.close(),
   };
 }

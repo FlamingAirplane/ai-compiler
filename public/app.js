@@ -472,6 +472,7 @@ function setStatus(next) {
   renderActivity();
   renderUsage();
   renderModelOptions();
+  renderImageOptions();
   renderHint();
   if (first || !messages.length) renderMessages();
 }
@@ -813,6 +814,135 @@ function renderAttachments() {
   );
 }
 
+// ------------------------------------------------------------------ images
+
+let gallery = [];
+let imaging = null; // { controller, cards } while images are being made
+
+function setView(view) {
+  const images = view === 'images';
+  $('imagesView').hidden = !images;
+  $('chatView').hidden = images;
+  $('tabImages').setAttribute('aria-selected', String(images));
+  $('tabChat').setAttribute('aria-selected', String(!images));
+  store.set('aic.view', view);
+  (images ? $('imgPrompt') : $('input')).focus();
+  if (images) loadGallery();
+}
+
+async function loadGallery() {
+  try {
+    gallery = (await api('/api/images')).images;
+  } catch {
+    gallery = [];
+  }
+  renderGallery();
+}
+
+function shotCard(img) {
+  const url = `/images/${encodeURIComponent(img.file)}`;
+  const del = el('button', { type: 'button', class: 'link', text: 'Delete' });
+  del.addEventListener('click', async () => {
+    if (!confirm('Delete this image? This cannot be undone.')) return;
+    gallery = (await api('/api/images/delete', { file: img.file })).images;
+    renderGallery();
+  });
+  const copyBtn = el('button', { type: 'button', class: 'link', text: 'Copy prompt' });
+  copyBtn.addEventListener('click', () => copy(img.revisedPrompt || img.prompt, copyBtn));
+  return el(
+    'figure',
+    { class: 'shot' },
+    el('a', { class: 'pic', href: url, target: '_blank', rel: 'noopener', title: 'Open full size' }, el('img', { src: url, alt: img.prompt, loading: 'lazy', width: img.width, height: img.height })),
+    el(
+      'figcaption',
+      {},
+      el('span', { class: 'p', text: img.prompt, title: img.revisedPrompt ? `Prompt used: ${img.revisedPrompt}` : img.prompt }),
+      el('span', { class: 'm', text: `${img.providerName ?? img.provider} · ${img.width}×${img.height} · ${fmtTime(img.at)}` }),
+      el(
+        'span',
+        { class: 'acts' },
+        el('a', { class: 'link', href: url, download: img.file, text: 'Download' }),
+        el('button', { type: 'button', class: 'link', text: 'Reuse', title: 'Put this prompt back in the box', onclick: () => { $('imgPrompt').value = img.prompt; $('imgPrompt').focus(); } }),
+        copyBtn,
+        del,
+      ),
+    ),
+  );
+}
+
+function renderGallery() {
+  const pending = imaging?.cards ?? [];
+  const cards = gallery.map(shotCard);
+  $('gallery').replaceChildren(...pending, ...(cards.length || pending.length ? cards : [el('p', { class: 'empty-note', text: 'Images you make appear here, saved on this computer in data/images.' })]));
+}
+
+let imgSignature = '';
+function renderImageOptions() {
+  const list = status?.images?.providers ?? [];
+  const signature = JSON.stringify(list.map((p) => [p.id, p.state, p.models.map((m) => m.id)]));
+  if (signature === imgSignature) return;
+  imgSignature = signature;
+  const select = $('imgModel');
+  const current = select.value || store.get('aic.imgModel', 'auto');
+  const usable = list.filter((p) => p.state !== 'no_key');
+  select.replaceChildren(
+    el('option', { value: 'auto', text: 'Auto' }),
+    ...usable.map((p) => el('optgroup', { label: p.name }, el('option', { value: p.id, text: `Any ${p.name} model` }), p.models.length > 1 ? p.models.map((m) => el('option', { value: `${p.id}/${m.id}`, text: m.id.split('/').pop() })) : [])),
+  );
+  select.value = [...select.options].some((o) => o.value === current) ? current : 'auto';
+  const ready = list.filter((p) => p.state === 'ready').map((p) => p.name);
+  const resting = list.filter((p) => p.state === 'cooling').map((p) => `${p.name} (back in ${fmtWait(p.availableAt - serverNow())})`);
+  const missing = list.filter((p) => p.state === 'no_key').map((p) => p.name);
+  $('imgHint').textContent = [
+    ready.length ? `Ready: ${ready.join(', ')}.` : 'No image provider is ready right now.',
+    resting.length ? `Resting: ${resting.join(', ')}.` : '',
+    missing.length ? `Add a key on the right for more free images from ${missing.join(', ')}.` : '',
+    'Free tiers can take a minute or two.',
+  ].filter(Boolean).join(' ');
+}
+
+async function generate() {
+  if (imaging) {
+    imaging.controller.abort();
+    return;
+  }
+  const prompt = $('imgPrompt').value.trim();
+  if (!prompt) return $('imgPrompt').focus();
+  const n = Number($('imgCount').value);
+  const started = Date.now();
+  const label = () => `Making ${n > 1 ? `${n} images` : 'the image'}… ${Math.round((Date.now() - started) / 1000)}s`;
+  const cards = Array.from({ length: n }, () => el('figure', { class: 'shot pending' }, el('div', { class: 'pic', text: label() }), el('figcaption', {}, el('span', { class: 'p', text: prompt }))));
+  imaging = { controller: new AbortController(), cards };
+  const tick = setInterval(() => cards.forEach((c) => (c.firstChild.textContent = label())), 1000);
+  $('imgGo').textContent = 'Stop';
+  renderGallery();
+  try {
+    const res = await fetch('/v1/images/generations', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt, n, size: $('imgSize').value, model: $('imgModel').value, response_format: 'url', aic: { source: 'chat', enhance: $('imgEnhance').checked } }),
+      signal: imaging.controller.signal,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(errorText(data.error));
+    if (data.aic?.partial) toast(data.aic.partial);
+    if (data.aic?.revisedPrompt) toast('Prompt improved. Hover an image to see the prompt that was used.');
+    imaging = null;
+    await loadGallery();
+  } catch (err) {
+    const failed = el('figure', { class: 'shot failed' }, el('div', { class: 'pic', text: err.name === 'AbortError' ? 'Stopped.' : err.message }), el('figcaption', {}, el('span', { class: 'p', text: prompt })));
+    imaging = null;
+    renderGallery();
+    $('gallery').prepend(failed);
+    setTimeout(() => failed.remove(), 15000);
+  } finally {
+    clearInterval(tick);
+    imaging = null;
+    $('imgGo').textContent = 'Generate';
+    poll();
+  }
+}
+
 // ------------------------------------------------------------------ toasts
 
 function toast(text) {
@@ -853,10 +983,12 @@ $('input').addEventListener('input', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
-  if (e.key === 'Escape' && running) running.abort();
-  else if (e.key === '/' && !typing) {
+  if (e.key === 'Escape' && (running || imaging)) {
+    running?.abort();
+    imaging?.controller.abort();
+  } else if (e.key === '/' && !typing) {
     e.preventDefault();
-    $('input').focus();
+    ($('imagesView').hidden ? $('input') : $('imgPrompt')).focus();
   } else if (e.altKey && e.code === 'KeyN') {
     e.preventDefault();
     startNewChat();
@@ -864,6 +996,20 @@ document.addEventListener('keydown', (e) => {
 });
 
 $('new').addEventListener('click', startNewChat);
+$('tabChat').addEventListener('click', () => setView('chat'));
+$('tabImages').addEventListener('click', () => setView('images'));
+$('imgForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  generate();
+});
+$('imgPrompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    if (!imaging) generate();
+  }
+});
+for (const id of ['imgSize', 'imgCount', 'imgModel']) $(id).addEventListener('change', (e) => store.set(`aic.${id}`, e.target.value));
+$('imgEnhance').addEventListener('change', (e) => store.set('aic.imgEnhance', e.target.checked));
 $('chat').addEventListener('change', (e) => switchChat(chats.find((c) => c.id === e.target.value) ?? chat));
 $('export').addEventListener('click', exportChat);
 $('delete').addEventListener('click', () => {
@@ -919,7 +1065,11 @@ async function start() {
   $('mode').value = store.get('aic.mode', '');
   renderChatList();
   renderMessages();
+  $('imgSize').value = store.get('aic.imgSize', '1024x1024');
+  $('imgCount').value = store.get('aic.imgCount', '1');
+  $('imgEnhance').checked = store.get('aic.imgEnhance', false);
   await poll();
+  if (store.get('aic.view', 'chat') === 'images') setView('images');
   try {
     skills = (await api('/api/skills')).skills;
     const byCategory = new Map();

@@ -192,5 +192,61 @@
       "signupUrl": "https://ollama.com/download",
       "freeTier": "Unlimited. Runs models on your own computer, so it is used as the last resort when every cloud tier is spent. No key needed; it is picked up automatically when Ollama is running."
     }
+  ],
+  "imageProviders": [
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare Workers AI",
+      "kind": "cloudflare",
+      "url": "https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model}",
+      "keyEnv": "CLOUDFLARE_API_TOKEN",
+      "extraEnv": [
+        "CLOUDFLARE_ACCOUNT_ID"
+      ],
+      "models": [
+        "@cf/black-forest-labs/flux-1-schnell",
+        "@cf/bytedance/stable-diffusion-xl-lightning",
+        "@cf/stabilityai/stable-diffusion-xl-base-1.0"
+      ],
+      "signupUrl": "https://dash.cloudflare.com/profile/api-tokens",
+      "freeTier": "Images come out of the same 10,000 free neurons a day as chat (FLUX schnell is a few hundred images a day at most). Same key and account ID as for chat."
+    },
+    {
+      "id": "nvidia",
+      "name": "NVIDIA NIM",
+      "kind": "nvidia",
+      "url": "https://ai.api.nvidia.com/v1/genai/{model}",
+      "keyEnv": "NVIDIA_API_KEY",
+      "models": [
+        "black-forest-labs/flux.1-schnell",
+        "black-forest-labs/flux.1-dev"
+      ],
+      "signupUrl": "https://build.nvidia.com/settings/api-keys",
+      "freeTier": "Free rate-limited access for NVIDIA Developer Program members. Same key as for chat."
+    },
+    {
+      "id": "huggingface",
+      "name": "Hugging Face",
+      "kind": "huggingface",
+      "url": "https://router.huggingface.co/hf-inference/models/{model}",
+      "keyEnv": "HF_TOKEN",
+      "models": [
+        "black-forest-labs/FLUX.1-schnell",
+        "stabilityai/stable-diffusion-xl-base-1.0"
+      ],
+      "signupUrl": "https://huggingface.co/settings/tokens",
+      "freeTier": "Uses the small monthly credit on free accounts, shared with chat. Same token as for chat."
+    },
+    {
+      "id": "pollinations",
+      "name": "Pollinations",
+      "kind": "pollinations",
+      "url": "https://image.pollinations.ai/prompt/{prompt}",
+      "models": [
+        "default"
+      ],
+      "signupUrl": "https://pollinations.ai",
+      "freeTier": "No account or key needed, so it works straight away. Prompts go to a free community service; images are requested as private so they stay off its public feed. Set \"enabled\": false in providers.json to turn it off."
+    }
   ]
 }

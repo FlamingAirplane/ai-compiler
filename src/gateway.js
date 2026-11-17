@@ -10,6 +10,7 @@ import { Router, errorMessage } from './router.js';
 import { loadSkills } from './skills.js';
 import { createTools, TOOL_ENV } from './tools.js';
 import { HarnessError, MODES, MODE_INFO, runHarness, withSystem } from './harness.js';
+import { ImageRouter, ImageStore, parseSize } from './images.js';
 import { contentText, estimateTokens, parseSseLine, sseData, sseDone, sseNote } from './sse.js';
 
 class RequestError extends Error {
@@ -75,6 +76,8 @@ async function peekStream(reader, timeoutMs) {
     clearTimeout(timer);
   }
 }
+
+const ENHANCE = `You improve prompts for image generation models. Rewrite the user's idea as one detailed prompt: the subject, setting, composition, lighting, style and mood, in 40 to 90 words. Keep everything the user asked for and invent nothing that contradicts it. Reply with the prompt only, with no quotes or preamble.`;
 
 const newId = () => `chatcmpl-aic-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 const headerSafe = (v) => String(v ?? '').replace(/[^\x20-\x7e]/g, '?');
@@ -142,10 +145,13 @@ export class Core {
     // Keys come from .env, and from the real environment when set there.
     this.env = opts.memory ? { ...(opts.env ?? {}) } : { ...loadEnvFile(this.paths.envFile), ...(opts.env ?? {}) };
     this.providers = new Providers({ catalog: normalizeCatalog(raw), env: this.env, cacheFile: data('models.json'), fetchImpl, now: this.now });
-    this.keyNames = [...new Set([...this.providers.envNames(), ...TOOL_ENV])];
+    this.images = new ImageRouter({ catalog: raw.imageProviders ?? [], env: this.env, quota: null, fetchImpl, now: this.now });
+    this.imageStore = opts.imageDir ? new ImageStore(opts.imageDir) : opts.memory ? null : new ImageStore(join(this.paths.dataDir, 'images'));
+    this.keyNames = [...new Set([...this.providers.envNames(), ...this.images.all.flatMap((p) => p.required), ...TOOL_ENV])];
     if (!opts.memory) for (const n of this.keyNames) if (process.env[n]) this.env[n] = process.env[n];
 
     this.quota = new Quota({ file: data('usage.json'), now: this.now, tzOf: (id) => this.providers.get(id)?.resetTz ?? 'UTC' });
+    this.images.quota = this.quota;
     this.router = new Router({
       providers: this.providers,
       quota: this.quota,
@@ -654,6 +660,7 @@ export class Core {
     }
     const touched = this.providers.all.filter((p) => p.required.some((n) => n in clean));
     for (const p of touched) this.quota.clearCooldowns(p.id);
+    for (const p of this.images.all) if (p.required.some((n) => n in clean)) this.quota.clearCooldowns(this.images.pid(p));
     await Promise.all(touched.map((p) => this.providers.discover(p, { force: true })));
     return this.status();
   }
@@ -686,6 +693,56 @@ export class Core {
     const when = r.retryAt ? ` Back at ${new Date(r.retryAt).toLocaleTimeString()}.` : '';
     const why = String(r.attempts?.at(-1)?.message ?? r.message).replace(/[.\s]*$/, '.');
     return { provider: id, name: p.name, ok: false, ms, code: r.code, message: `${why}${when}` };
+  }
+
+  /**
+   * Make 1 to 4 images. Each one goes to the first image provider with free
+   * quota. Images are saved under data/images and returned as base64 too.
+   */
+  async generateImages(body, { signal } = {}) {
+    const req = { source: String(body?.aic?.source ?? 'api').slice(0, 20), mode: 'image', started: this.now() };
+    const prompt = String(body?.prompt ?? '').trim();
+    if (!prompt || prompt.length > 4000) {
+      const f = { status: 400, code: 'invalid_request', message: 'The request needs a "prompt" of 1 to 4,000 characters.' };
+      this.record(req, { ok: false, code: f.code, error: f.message });
+      throw new RequestError(f);
+    }
+    const n = Math.min(4, Math.max(1, Math.trunc(Number(body.n)) || 1));
+    const { width, height } = parseSize(body.size);
+    const seedIn = body.aic?.seed ?? body.seed;
+    const seed = Number.isInteger(Number(seedIn)) && seedIn !== '' && seedIn != null ? Number(seedIn) : null;
+    let used = prompt;
+    let revised = null;
+    if (body.aic?.enhance) {
+      const r = await this.complete({ messages: [{ role: 'system', content: ENHANCE }, { role: 'user', content: prompt }], temperature: 0.7 }, { spec: 'auto:fast', signal, wait: false });
+      if (r.ok && r.text.trim()) used = revised = r.text.trim().replace(/^["'\s]+|["'\s]+$/g, '').slice(0, 1500);
+    }
+    const images = [];
+    const attempts = [];
+    let failure = null;
+    for (let i = 0; i < n; i++) {
+      let r;
+      // Like chat: if every image tier is resting but one is back within seconds, wait for it.
+      for (let wait = 0; ; wait++) {
+        r = await this.images.generate({ prompt: used, width, height, seed: seed != null ? seed + i : null }, { spec: body.model, signal });
+        if (r.ok || r.code !== 'all_limited' || !r.retryAt || wait >= 3 || r.retryAt - this.now() > (this.config.images?.waitForQuotaMs ?? 60000)) break;
+        await sleep(Math.max(0, r.retryAt - this.now()) + 300, signal);
+      }
+      attempts.push(...r.attempts);
+      if (!r.ok) {
+        failure = r;
+        break;
+      }
+      const meta = { prompt, revisedPrompt: revised, provider: r.provider.id, providerName: r.provider.name, model: r.model, width, height, seed: seed != null ? seed + i : null, at: this.now() };
+      const saved = this.imageStore?.save(r.data, r.mime, meta);
+      images.push({ ...meta, file: saved?.file ?? null, mime: r.mime, ms: r.ms, b64: r.data.toString('base64') });
+    }
+    if (!images.length) {
+      this.record(req, { ok: false, code: failure.code, error: failure.message, fallbacks: Math.max(0, attempts.length - 1) });
+      throw new RequestError({ ...failure, attempts });
+    }
+    this.record(req, { ok: true, provider: images[0].provider, model: images[0].model, requests: images.length, fallbacks: Math.max(0, attempts.length - images.length), error: failure ? `only ${images.length} of ${n} made` : null });
+    return { prompt, revisedPrompt: revised, images, attempts, partial: failure ? `Only ${images.length} of ${n} images were made: ${failure.message}` : null };
   }
 
   async testAll({ signal } = {}) {
@@ -779,6 +836,7 @@ export class Core {
       searchesTotal: search.total.requests,
       skills: this.skills.size,
       activity: this.activity.slice(0, 25),
+      images: { providers: this.images.status(), saved: this.imageStore?.list().length ?? 0 },
       providers,
       totals: {
         ready: providers.filter((p) => p.state === 'ready').length,
