@@ -31,6 +31,10 @@ Prompts leave this computer for third-party services, and several free tiers kee
 - Never send personal data about the user or anyone else.
 - Before sending proprietary or unreleased code, check that the user is comfortable with that. If they have not said, ask once, or reduce the question to a minimal example that reveals nothing private.
 
+## Saving keys
+
+If a call fails because no provider is set up, run `key_status` to see which keys are missing and where each free one comes from, and tell the user. When the user gives you a key and asks you to save it, call `save_api_key` with its name and value; it is stored in a private file on their computer and checked with the provider. Never repeat a key back in your reply. If the user would rather not paste a key into the chat, tell them to run `aic keys set <NAME>` in a terminal (or `node src/cli.js keys set <NAME>` in the project folder), which asks for it without showing it.
+
 ## If the tools are missing
 
 The MCP server is declared in this project's `.mcp.json` and has to be approved once in Claude Code. It also needs at least one provider key: the user adds those by running `npm start` and opening the dashboard at http://localhost:4141.

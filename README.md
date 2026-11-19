@@ -136,7 +136,17 @@ This folder already contains `.mcp.json`, so Claude Code offers the `ai-compiler
 claude mcp add --scope user ai-compiler -- node "$(pwd)/src/cli.js" mcp
 ```
 
-It gives Claude Code four tools: `ask` (one answer), `panel` (several models' answers side by side, for Claude to judge), `quota_status` and `list_skills`. The skill in `.claude/skills/ai-compiler` tells Claude Code when these help and what must never be sent.
+It gives Claude Code these tools: `ask` (one answer), `panel` (several models' answers side by side, for Claude to judge), `quota_status`, `list_skills`, `generate_image`, and three for keys: `key_status`, `save_api_key` and `remove_api_key`. The skill in `.claude/skills/ai-compiler` tells Claude Code when these help and what must never be sent.
+
+#### Saving keys for the MCP server
+
+Keys are saved on your computer in `~/.config/ai-compiler/keys.env` (on Windows, `%APPDATA%\ai-compiler\keys.env`), a file only you can read. The MCP server, the dashboard and the command line all use that one file, so a key saved any of these ways works everywhere, and keeps working if you move or re-clone the project:
+
+- **In a terminal, without the key appearing anywhere:** `node src/cli.js keys set GROQ_API_KEY`, then paste the key when asked. `node src/cli.js keys` lists every key name and where to get it.
+- **In Claude Code:** ask it to save your key, for example "save this Groq key for AI Compiler: gsk_…". It calls `save_api_key`, which saves the key and checks it with the provider. The key passes through that conversation, so use the terminal way if you would rather it did not.
+- **In the dashboard:** paste it into the provider's card.
+
+Keys from an older `.env` file in the project folder are still read, and a key saved the new way takes priority. Set `AIC_ENV_FILE` to keep keys somewhere else.
 
 ## The harness
 
@@ -204,7 +214,7 @@ The full design, with diagrams, is in [docs/design.md](docs/design.md).
 
 | File | What it is |
 | --- | --- |
-| `.env` | Your API keys. Created when you save a key. Never commit it. |
+| `~/.config/ai-compiler/keys.env` | Your API keys, readable only by you and shared by every copy of AI Compiler. Created when you save a key. An older `.env` in the project folder is still read. |
 | `providers.json` | The provider catalog: URLs, key names, model preferences, free-tier notes. |
 | `config.json` | Routing strategy, timeouts, harness settings, agent tool permissions. |
 | `skills/` | One Markdown file per skill. |
@@ -218,7 +228,7 @@ Environment variables: `AIC_PORT` (default 4141), `AIC_ENV_FILE`, `AIC_DATA_DIR`
 - **One key per provider, from your own account.** AI Compiler adds up the free tiers of different providers. It does not rotate several accounts on one provider to multiply a quota, which breaks providers' terms.
 - **Only refilling free tiers are included.** No provider here needs a payment method, so nothing can be charged. A few (Cerebras, Mistral) have tightened their free access during 2026; if a key from one of them has no free quota, it is simply skipped.
 - **Free tiers often keep your prompts.** Google's free tier and some OpenRouter free models may use prompts for training. Do not send secrets or private data.
-- **The server only listens on your computer.** It refuses requests from other websites open in your browser and from other hosts. Keys are stored in `.env` with owner-only permissions, are sent only to the provider they belong to, and are never returned by the API.
+- **The server only listens on your computer.** It refuses requests from other websites open in your browser and from other hosts. Keys are stored in `~/.config/ai-compiler/keys.env` with owner-only permissions, are sent only to the provider they belong to, and are never returned by the API or by any MCP tool.
 
 ## Tests
 

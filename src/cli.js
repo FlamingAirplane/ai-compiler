@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { DEFAULT_PORT, VERSION } from './config.js';
+import { DEFAULT_PORT, VERSION, keysFile } from './config.js';
 import { getBackend } from './backend.js';
 import { sseEvents, contentText } from './sse.js';
 import { fmtNum, fmtWait, stateLabel, statusTable, table } from './format.js';
@@ -21,6 +21,8 @@ Usage
   aic image "prompt" [options]           make images on free image tiers
   aic check [provider]                   send one tiny request through each provider to prove it works
   aic keys                               which providers have keys, and where to get them
+  aic keys set <NAME> [value]            save a key (asks for it, hidden, if no value is given)
+  aic keys remove <NAME>                 delete a saved key
   aic models                             every model name you can use
   aic skills                             the skills you can apply
   aic mcp                                run as an MCP server (for Claude Code and other AI tools)
@@ -401,14 +403,83 @@ async function check(flags, words) {
   process.exit(results.every((r) => r.ok) ? 0 : 1);
 }
 
-async function keys(flags) {
+/** Ask for a secret in the terminal without echoing it. */
+function askHidden(question) {
+  return new Promise((resolve) => {
+    const { stdin, stderr } = process;
+    if (!stdin.isTTY) {
+      let data = '';
+      stdin.setEncoding('utf8');
+      stdin.on('data', (c) => (data += c));
+      stdin.on('end', () => resolve(data.trim()));
+      return;
+    }
+    stderr.write(question);
+    let value = '';
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    const onData = (chunk) => {
+      for (const ch of chunk) {
+        if (ch === '\r' || ch === '\n' || ch === '\u0004') {
+          stdin.setRawMode(false);
+          stdin.pause();
+          stdin.off('data', onData);
+          stderr.write('\n');
+          return resolve(value.trim());
+        }
+        if (ch === '\u0003') {
+          stdin.setRawMode(false);
+          stderr.write('\n');
+          process.exit(130);
+        }
+        if (ch === '\u007f' || ch === '\b') {
+          if (value) {
+            value = value.slice(0, -1);
+            stderr.write('\b \b');
+          }
+        } else if (ch >= ' ') {
+          value += ch;
+          stderr.write('*');
+        }
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
+async function keys(flags, words = []) {
+  const [action, rawName, rawValue] = words;
+  if (action === 'set' || action === 'remove') {
+    const name = String(rawName ?? '').trim().toUpperCase();
+    if (!name) die(`Say which key, for example:  aic keys ${action} GROQ_API_KEY`);
+    let value = '';
+    if (action === 'set') {
+      value = rawValue ?? (await askHidden(`Paste your ${name} and press Enter: `));
+      if (!value) die('No key given, nothing saved.');
+    }
+    const backend = await backendFor(flags);
+    let after;
+    try {
+      after = await backend.setKeys({ [name]: value });
+    } catch (err) {
+      die(`Error: ${err.message}`);
+    }
+    backend.close();
+    if (action === 'remove') return console.log(`Removed ${name}.`);
+    console.log(`Saved ${name} to ${keysFile()} (readable only by you).`);
+    for (const p of after.providers.filter((x) => x.env.includes(name))) console.log(`  ${p.name}: ${stateLabel(p.state)}${p.state === 'ready' ? `, ${p.models.length} models` : ''}`);
+    if (rawValue) console.error(dim('Tip: leave the key off the command line next time (aic keys set NAME), so it stays out of your shell history.'));
+    return;
+  }
   const backend = await backendFor(flags);
   const { providers, toolKeys } = await backend.status();
   const rows = [['Provider', 'State', 'Key name', 'Get a free key']];
   for (const p of providers) rows.push([p.name, stateLabel(p.state), p.env.join(' + ') || '(none needed)', p.signupUrl ?? '']);
   for (const k of toolKeys) rows.push(['Web search (Tavily)', k.set ? 'set' : 'no key', k.name, 'https://app.tavily.com']);
   console.log(table(rows));
-  console.log('\nAdd keys in the dashboard (aic serve), or as NAME=value lines in the .env file next to package.json.');
+  console.log(`\nKeys are saved in ${keysFile()}.`);
+  console.log('Add one with "aic keys set <NAME>", in the dashboard (aic serve), or through the MCP tool save_api_key.');
   console.log('Use one key per provider, from your own account.');
   backend.close();
 }
@@ -426,7 +497,7 @@ async function main() {
     case 'chat':
       return chat(flags);
     case 'keys':
-      return keys(flags);
+      return keys(flags, words);
     case 'check':
       return check(flags, words);
     case 'image':

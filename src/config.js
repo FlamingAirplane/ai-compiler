@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, chmodSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,12 +38,28 @@ export const DEFAULT_CONFIG = {
   },
 };
 
+/**
+ * Where API keys are kept: one private file per user, outside the project, so
+ * every copy of AI Compiler (the server, the command line and the MCP server
+ * Claude Code starts) shares the same keys, and re-cloning the project loses
+ * nothing. Set AIC_ENV_FILE to use a different file.
+ */
+export function keysFile() {
+  const e = process.env;
+  if (e.AIC_ENV_FILE) return e.AIC_ENV_FILE;
+  const base = process.platform === 'win32' ? e.APPDATA ?? join(homedir(), 'AppData', 'Roaming') : e.XDG_CONFIG_HOME ?? join(homedir(), '.config');
+  return join(base, 'ai-compiler', 'keys.env');
+}
+
+/** Earlier versions kept keys in a .env file in the project folder. It is still read. */
+export const legacyEnvFile = () => process.env.AIC_LEGACY_ENV_FILE ?? join(ROOT, '.env');
+
 export function resolvePaths(o = {}) {
   const e = process.env;
   return {
     config: o.config ?? e.AIC_CONFIG ?? join(ROOT, 'config.json'),
     catalog: o.catalog ?? e.AIC_CATALOG ?? join(ROOT, 'providers.json'),
-    envFile: o.envFile ?? e.AIC_ENV_FILE ?? join(ROOT, '.env'),
+    envFile: o.envFile ?? keysFile(),
     dataDir: o.dataDir ?? e.AIC_DATA_DIR ?? join(ROOT, 'data'),
     skillsDir: o.skillsDir ?? e.AIC_SKILLS_DIR ?? join(ROOT, 'skills'),
     publicDir: join(ROOT, 'public'),
@@ -78,8 +95,13 @@ export function parseEnv(text) {
   return out;
 }
 
+const readEnv = (file) => (existsSync(file) ? parseEnv(readFileSync(file, 'utf8')) : {});
+
+/** Read a keys file. The default one also picks up keys from the old project .env, which it overrides. */
 export function loadEnvFile(file) {
-  return existsSync(file) ? parseEnv(readFileSync(file, 'utf8')) : {};
+  const own = readEnv(file);
+  const legacy = legacyEnvFile();
+  return file === keysFile() && file !== legacy ? { ...readEnv(legacy), ...own } : own;
 }
 
 /** Set (or, with an empty value, remove) variables in a .env file, keeping other lines. */
@@ -97,7 +119,21 @@ export function saveEnvVars(file, vars) {
     }
   }
   while (lines.length && lines.at(-1) === '') lines.pop();
-  writeAtomic(file, lines.length ? lines.join('\n') + '\n' : '', 0o600);
+  // The folder and the file are readable by you only.
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  if (!lines.length || !lines[0].startsWith('#')) lines.unshift('# AI Compiler API keys. Keep this file private; each key is sent only to its own provider.');
+  writeAtomic(file, lines.join('\n') + '\n', 0o600);
+  try {
+    chmodSync(file, 0o600);
+  } catch {
+    /* not supported on this system */
+  }
+  // A key removed here must not come back from the old project .env.
+  const legacy = legacyEnvFile();
+  if (file === keysFile() && file !== legacy && existsSync(legacy)) {
+    const removed = Object.fromEntries(Object.entries(vars).filter(([, v]) => v === '' || v == null).map(([k]) => [k, '']));
+    if (Object.keys(removed).some((k) => k in readEnv(legacy))) saveEnvVars(legacy, removed);
+  }
 }
 
 export function writeAtomic(file, text, mode) {

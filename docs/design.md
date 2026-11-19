@@ -424,7 +424,9 @@ Responses carry `x-aic-mode`, `x-aic-provider` and `x-aic-model` headers.
 - `ask`: one answer, with a mode and optional skill;
 - `panel`: several answers side by side;
 - `quota_status`;
-- `list_skills`.
+- `list_skills`;
+- `generate_image`;
+- `key_status`, `save_api_key` and `remove_api_key`, which manage the saved keys. `key_status` reports which keys are set and where to get the rest, never the keys themselves. `save_api_key` writes the key, checks it with the provider by fetching its model list, and reports whether it works.
 
 It uses the running server when there is one, so its requests share the dashboard's counters; otherwise it loads the core itself. The project's `.mcp.json` registers it for Claude Code, and `.claude/skills/ai-compiler/SKILL.md` tells Claude Code when to use it and what never to send.
 
@@ -440,10 +442,10 @@ The server holds the user's API keys and spends their quota, so:
 - **Host check.** It answers only requests whose `Host` is `localhost`, `127.0.0.1` or `[::1]`, plus any names in `AIC_ALLOWED_HOSTS`. This blocks DNS-rebinding attacks, where a website makes its own domain point at your computer.
 - **Origin check.** When a request carries an `Origin`, it must be the server's own. This stops other websites open in your browser from using the API or saving keys.
 - **JSON only.** POST bodies must be JSON. That rules out the simple form posts a web page can send without asking.
-- **Key storage.** `.env` is written with owner-only permissions. Keys are sent only to their own provider, and are never returned by any endpoint.
+- **Key storage.** Keys live in one file per user, `~/.config/ai-compiler/keys.env` (`%APPDATA%` on Windows), outside the project, so the server, the CLI and the MCP server Claude Code starts all share them and nothing is lost by re-cloning. The folder is created owner-only (700) and the file is written atomically with owner-only permissions (600). An older project `.env` is still read underneath it, and removing a key removes it from both. Keys are sent only to their own provider, and are never returned by any endpoint or MCP tool. `aic keys set NAME` reads a key without echoing it, so it stays out of shell history and chat logs.
 - **Page policy.** Static files get a strict content security policy and `nosniff`, and paths cannot escape the `public` folder.
 
-There is no API key on the local server itself. Anything that can run code as you can already read `.env`, so a key would add little on one machine. It would matter on a network: see the improvements.
+There is no API key on the local server itself. Anything that can run code as you can already read the keys file, so a key would add little on one machine. It would matter on a network: see the improvements.
 
 ## Configuration and files
 

@@ -8,7 +8,8 @@ import { createInterface } from 'node:readline';
 import { APP, VERSION } from './config.js';
 import { getBackend } from './backend.js';
 import { collect } from './sse.js';
-import { statusTable } from './format.js';
+import { statusTable, stateLabel } from './format.js';
+import { keysFile } from './config.js';
 
 const MODES = ['auto', 'fast', 'smart', 'boost', 'ensemble', 'refine', 'agent'];
 const MODEL_FOR = { auto: 'auto', fast: 'auto:fast', smart: 'auto:smart' };
@@ -57,6 +58,33 @@ const TOOLS = [
     name: 'list_skills',
     description: 'List the skills (task-specific instruction presets) that ask and panel accept.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'key_status',
+    description:
+      'Show which free AI providers have an API key saved on this computer, which still need one, where to get each free key, and the file the keys are saved in. Never shows the keys themselves.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'save_api_key',
+    description:
+      'Save a free-tier API key on this computer so AI Compiler (the MCP server, the dashboard and the command line) can use it from now on. ' +
+      'The key is written to a private file only the user can read, checked against its provider, and sent only to that provider. ' +
+      'Only call this with a key the user gave you for this purpose. The key passes through this conversation, so when the user would rather keep it out of the chat, ' +
+      'suggest they run "aic keys set <NAME>" in a terminal instead, which asks for it without showing it. Use key_status to find the right NAME.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'The key name, for example GROQ_API_KEY or GEMINI_API_KEY (see key_status).' },
+        value: { type: 'string', description: 'The API key.' },
+      },
+      required: ['name', 'value'],
+    },
+  },
+  {
+    name: 'remove_api_key',
+    description: 'Delete a saved API key from this computer.',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'The key name, for example GROQ_API_KEY.' } }, required: ['name'] },
   },
   {
     name: 'generate_image',
@@ -116,6 +144,27 @@ async function callTool(name, args, opts) {
       if (!skills.length) return 'No skills are installed.';
       return skills.map((s) => `${s.name}${s.mode !== 'single' ? ` (${s.mode})` : ''}: ${s.description}`).join('\n');
     }
+    case 'key_status':
+      return keyReport(await backend.status());
+    case 'save_api_key':
+    case 'remove_api_key': {
+      const status = await backend.status();
+      const keyName = String(args?.name ?? '').trim().toUpperCase();
+      const known = knownKeys(status);
+      if (!known.has(keyName)) throw new Error(`"${keyName || '(none)'}" is not a key AI Compiler uses. Known keys: ${[...known.keys()].join(', ')}.`);
+      const value = name === 'save_api_key' ? String(args?.value ?? '').trim() : '';
+      if (name === 'save_api_key' && !value) throw new Error('"value" is required.');
+      const after = await backend.setKeys({ [keyName]: value });
+      if (name === 'remove_api_key') return `Removed ${keyName} from ${keysFile()}.`;
+      const lines = [`Saved ${keyName} to ${keysFile()} (readable only by you).`];
+      for (const p of after.providers.filter((x) => x.env.includes(keyName))) {
+        const detail = p.state === 'ready' ? `ready, ${p.models.length} model${p.models.length === 1 ? '' : 's'} found` : p.state === 'no_key' ? `still needs ${p.missing.join(', ')}` : p.state === 'rejected' ? 'the provider rejected this key; check it was copied in full' : stateLabel(p.state);
+        lines.push(`${p.name}: ${detail}.`);
+      }
+      for (const p of (after.images?.providers ?? []).filter((x) => x.env.includes(keyName))) lines.push(`${p.name} images: ${stateLabel(p.state)}.`);
+      if (keyName === 'TAVILY_API_KEY') lines.push('Web search for the agent is on.');
+      return lines.join('\n');
+    }
     case 'generate_image': {
       const prompt = String(args?.prompt ?? '').trim();
       if (!prompt) throw new Error('"prompt" is required.');
@@ -130,6 +179,29 @@ async function callTool(name, args, opts) {
     default:
       throw new Error(`Unknown tool "${name}".`);
   }
+}
+
+/** Every key name AI Compiler uses, with the services each one turns on. */
+function knownKeys(status) {
+  const map = new Map();
+  const add = (name, what) => map.set(name, [...(map.get(name) ?? []), what]);
+  for (const p of status.providers) for (const n of p.env) add(n, p.name);
+  for (const p of status.images?.providers ?? []) for (const n of p.env) add(n, `${p.name} images`);
+  for (const k of status.toolKeys ?? []) add(k.name, 'web search');
+  return map;
+}
+
+function keyReport(status) {
+  const set = (name) => status.providers.some((p) => p.env.includes(name) && !p.missing.includes(name)) || (status.toolKeys ?? []).some((k) => k.name === name && k.set);
+  const lines = [`Keys are saved in ${keysFile()}, a private file on this computer.`, ''];
+  for (const [name, uses] of knownKeys(status)) {
+    const p = status.providers.find((x) => x.env.includes(name));
+    const link = p?.signupUrl ?? (name === 'TAVILY_API_KEY' ? 'https://app.tavily.com' : '');
+    const state = set(name) ? (p?.state === 'rejected' ? 'saved, but rejected by the provider' : 'saved') : 'not set';
+    lines.push(`${name}: ${state}. Used by ${[...new Set(uses)].join(', ')}.${set(name) || !link ? '' : ` Get one free at ${link}`}`);
+  }
+  lines.push('', 'To add a key without it appearing in a chat, run: aic keys set <NAME>');
+  return lines.join('\n');
 }
 
 export async function handleMessage(msg, opts = {}) {
