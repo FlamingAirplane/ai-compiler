@@ -144,13 +144,13 @@ export class Core {
 
     // Keys come from .env, and from the real environment when set there.
     this.env = opts.memory ? { ...(opts.env ?? {}) } : { ...loadEnvFile(this.paths.envFile), ...(opts.env ?? {}) };
-    this.providers = new Providers({ catalog: normalizeCatalog(raw), env: this.env, cacheFile: data('models.json'), fetchImpl, now: this.now });
+    this.providers = new Providers({ catalog: normalizeCatalog(raw), env: this.env, cacheFile: opts.modelsFile ?? data('models.json'), fetchImpl, now: this.now });
     this.images = new ImageRouter({ catalog: raw.imageProviders ?? [], env: this.env, quota: null, fetchImpl, now: this.now });
     this.imageStore = opts.imageDir ? new ImageStore(opts.imageDir) : opts.memory ? null : new ImageStore(join(this.paths.dataDir, 'images'));
     this.keyNames = [...new Set([...this.providers.envNames(), ...this.images.all.flatMap((p) => p.required), ...TOOL_ENV])];
     if (!opts.memory) for (const n of this.keyNames) if (process.env[n]) this.env[n] = process.env[n];
 
-    this.quota = new Quota({ file: data('usage.json'), now: this.now, tzOf: (id) => this.providers.get(id)?.resetTz ?? 'UTC' });
+    this.quota = new Quota({ file: opts.usageFile ?? data('usage.json'), now: this.now, tzOf: (id) => this.providers.get(id)?.resetTz ?? 'UTC' });
     this.images.quota = this.quota;
     this.router = new Router({
       providers: this.providers,

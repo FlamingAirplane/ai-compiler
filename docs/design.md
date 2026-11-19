@@ -21,6 +21,7 @@ This document explains the design of AI Compiler in enough detail to change it w
 - [Skills](#skills)
 - [Agent tools and their safety limits](#agent-tools-and-their-safety-limits)
 - [The interfaces](#the-interfaces)
+- [The browser version](#the-browser-version)
 - [Securing the local server](#securing-the-local-server)
 - [Configuration and files](#configuration-and-files)
 - [Testing](#testing)
@@ -434,6 +435,33 @@ It uses the running server when there is one, so its requests share the dashboar
 
 **Dashboard.** A single page with no framework. It polls `/api/status` every 4 seconds, and redraws countdowns every second from the server's clock. Model output is escaped before the small Markdown renderer adds any tags, and the page's content security policy allows only its own script. Conversations (up to 40, each with its own instructions and attached files), and the selections, are kept in the browser's local storage. Text files are read in the browser and sent as part of the message, in a fence the model can tell apart from the question. Status polls double as change detection: a provider going from rate limited to ready, or having its key rejected, raises a short notice.
 
+## The browser version
+
+`docs/app` is a copy of the app that runs entirely in the browser on GitHub Pages. `npm run build:web` (`scripts/build-web.js`) produces it. It is not a rewrite: it runs the same `gateway.js`, `router.js`, `quota.js`, `harness.js`, `images.js` and chat page, copied unchanged. A test fails if the copy is out of date.
+
+- **Node stand-ins.** An import map points each `node:` module at a small stand-in in `web/shims/`:
+  - the file system is a key-value store in `localStorage`, holding usage counts and the model cache;
+  - `Buffer` covers just what the image code needs;
+  - the hash used for cache fingerprints is fast and non-cryptographic;
+  - the network and process modules throw if called.
+
+  The usage file's lock and merge, written for several processes, now let several tabs share counts the same way.
+- **An in-page API.** `web/browser.js` defines `window.AIC_FETCH`, which the chat page uses instead of `fetch` for its API calls. It answers `/api/*` and `/v1/*` inside the page by calling the core directly. Images are kept in IndexedDB, and the gallery shows them from blob URLs.
+- **Only providers that allow it.** A web page can only call APIs that send CORS headers. That rules out GitHub Models, SambaNova, NVIDIA and Cloudflare. Pollinations answers web pages only with a Cloudflare Turnstile token (a bot check), and the page does not try to get around that. The agent keeps only the tools that work from a page: calculator, time, Wikipedia (with `origin=*`) and Tavily search.
+
+**Keys.** `web/vault.js` encrypts the keys with AES-GCM under a key derived from a passphrase with PBKDF2-SHA256 at 600,000 rounds. Only the salt, IV and ciphertext are stored, with a fresh IV on every save. The derived key is kept in `sessionStorage`, which belongs to one tab and is cleared when it closes, so reloads do not ask again but a new tab does.
+
+**Why the encryption matters.** All GitHub Pages sites of one account share the origin `flamingairplane.github.io`, so any page published there could read this app's `localStorage`. Encryption makes what such a page could read useless without the passphrase.
+
+**A second line of defence.** The page carries a content security policy:
+
+- scripts may only come from the site itself (the import map is allowed by its hash);
+- network requests may only go to the supported providers, Wikipedia and Tavily.
+
+Even injected code could not send a key to an attacker's server.
+
+The vault does not protect against anything that runs inside the unlocked page itself, such as a malicious browser extension with access to the page. It also cannot help if you reuse a weak passphrase.
+
 ## Securing the local server
 
 The server holds the user's API keys and spends their quota, so:
@@ -466,7 +494,7 @@ The data folder holds `models.json` (cached model lists) and `usage.json` (count
 
 ## Testing
 
-`npm test` runs 74 tests in about five seconds, with no network access and no keys. They run against `test/mock-upstream.js`, a single local server that pretends to be any number of OpenAI-compatible providers. Each pretend provider can be told to:
+`npm test` runs 78 tests in about five seconds, with no network access and no keys. They run against `test/mock-upstream.js`, a single local server that pretends to be any number of OpenAI-compatible providers. Each pretend provider can be told to:
 
 - require a particular key;
 - rate limit after N requests, with or without a retry time and rate-limit headers;
@@ -484,6 +512,7 @@ The data folder holds `models.json` (cached model lists) and `usage.json` (count
 | `tools.test.js` | The calculator, the HTML reader, the network guard (including redirects), the workspace guard (including symlinks and secrets), and the code sandbox's network, read and write restrictions. |
 | `server.test.js` | The HTTP API, refusal of other websites and other hosts, saving keys, the Anthropic translation both ways, the MCP protocol and tools, and the CLI, including attached files and the usage report. |
 | `images.test.js` | Image fallback and rests, each provider kind's request and answer format, safety refusals, waiting for a busy free service, saved files, the image API, the MCP image tool, and `aic image`. |
+| `web.test.js` | The browser build is in sync with its sources, its security policy allows only the providers, the key vault encrypts and only the right passphrase opens it, and the path stand-in behaves like POSIX. |
 | `refine.test.js` | Behaviours specific to real providers: model size parsing, ranking with published scores, breadth-first order, shared model names, too-large requests, "limit: 0", fixed and rolling daily resets, unusable replies, waiting for quota, shared usage files, and the self-test. |
 
 What the tests cannot cover:

@@ -185,6 +185,16 @@
       "maxModels": 4
     },
     {
+      "id": "pollinations",
+      "name": "Pollinations (no key)",
+      "baseUrl": "https://text.pollinations.ai/openai",
+      "modelsUrl": "https://text.pollinations.ai/models",
+      "modelIdField": "name",
+      "maxModels": 2,
+      "signupUrl": "https://pollinations.ai",
+      "freeTier": "No account or key needed, so chat works before you add any keys. A small open model (gpt-oss-20b at the time of writing), shared with everyone, so it can be slow or busy. Used after the providers you have keys for. Prompts go to a free community service; set \"enabled\": false here to turn it off."
+    },
+    {
       "id": "ollama",
       "name": "Ollama (local)",
       "baseUrl": "http://localhost:11434/v1",

@@ -1,0 +1,135 @@
+{
+ "providers": [
+  {
+   "id": "gemini",
+   "name": "Google Gemini",
+   "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+   "keyEnv": "GEMINI_API_KEY",
+   "signupUrl": "https://aistudio.google.com/apikey",
+   "freeTier": "Flash, Flash-Lite and Gemma models are free with per-model daily request caps. Google no longer publishes the exact numbers; see AI Studio > Rate limits for your project. Resets at midnight Pacific. Free-tier prompts may be used to improve Google products.",
+   "resetTz": "America/Los_Angeles",
+   "include": "^(gemini|gemma)-",
+   "prefer": [
+    "^gemini-[0-9.]+-flash$",
+    "^gemini-[0-9.]+-flash-lite$",
+    "^gemini-.*flash",
+    "^gemini-.*pro",
+    "^gemma"
+   ],
+   "maxModels": 8,
+   "dailyReset": "fixed"
+  },
+  {
+   "id": "groq",
+   "name": "Groq",
+   "baseUrl": "https://api.groq.com/openai/v1",
+   "keyEnv": "GROQ_API_KEY",
+   "signupUrl": "https://console.groq.com/keys",
+   "freeTier": "Free plan with per-model limits (reported around 30 requests/min and 1,000 requests/day on the larger models). Exact limits are on the Limits page in your Groq console.",
+   "hint": {
+    "rpm": 30,
+    "rpd": 1000
+   },
+   "exclude": "compound|orpheus|allam",
+   "prefer": [
+    "gpt-oss-120b",
+    "70b",
+    "kimi|qwen",
+    "gpt-oss-20b|instant"
+   ]
+  },
+  {
+   "id": "cerebras",
+   "name": "Cerebras",
+   "baseUrl": "https://api.cerebras.ai/v1",
+   "keyEnv": "CEREBRAS_API_KEY",
+   "signupUrl": "https://cloud.cerebras.ai",
+   "freeTier": "Was about 1M tokens/day. Some reports say the open free tier closed to new accounts in July 2026 and was replaced by a starter credit; older accounts may still have it.",
+   "prefer": [
+    "gpt-oss-120b",
+    "qwen|glm|70b",
+    "8b"
+   ]
+  },
+  {
+   "id": "openrouter",
+   "name": "OpenRouter (free models)",
+   "baseUrl": "https://openrouter.ai/api/v1",
+   "keyEnv": "OPENROUTER_API_KEY",
+   "keyCheckUrl": "https://openrouter.ai/api/v1/key",
+   "signupUrl": "https://openrouter.ai/settings/keys",
+   "freeTier": "Models ending in :free. About 20 requests/min and 50 requests/day shared across all free models (1,000/day once the account has bought $10 of credit). Some free models log prompts for training.",
+   "hint": {
+    "rpm": 20,
+    "rpd": 50
+   },
+   "freeSuffix": ":free",
+   "sharedQuota": true,
+   "maxModels": 8,
+   "dailyReset": "fixed",
+   "resetTz": "UTC"
+  },
+  {
+   "id": "mistral",
+   "name": "Mistral",
+   "baseUrl": "https://api.mistral.ai/v1",
+   "keyEnv": "MISTRAL_API_KEY",
+   "signupUrl": "https://console.mistral.ai/api-keys",
+   "freeTier": "Free mode for evaluation and prototyping with the lowest rate limits. Mistral does not publish the numbers; see Admin Console > Limits.",
+   "exclude": "voxtral|pixtral",
+   "prefer": [
+    "^mistral-large-latest$",
+    "^mistral-medium-latest$",
+    "^mistral-small-latest$",
+    "^codestral-latest$",
+    "^mistral-large",
+    "^mistral-medium",
+    "^mistral-small"
+   ]
+  },
+  {
+   "id": "cohere",
+   "name": "Cohere",
+   "baseUrl": "https://api.cohere.ai/compatibility/v1",
+   "keyEnv": "COHERE_API_KEY",
+   "signupUrl": "https://dashboard.cohere.com/api-keys",
+   "freeTier": "Trial keys: about 20 chat requests/min and 1,000 calls per month. Non-commercial use only.",
+   "include": "^command",
+   "prefer": [
+    "command-a",
+    "command-r-plus",
+    "command-r"
+   ]
+  },
+  {
+   "id": "huggingface",
+   "name": "Hugging Face",
+   "baseUrl": "https://router.huggingface.co/v1",
+   "keyEnv": "HF_TOKEN",
+   "signupUrl": "https://huggingface.co/settings/tokens",
+   "freeTier": "A small monthly credit for Inference Providers on free accounts. Runs out quickly, so it sits near the end of the order.",
+   "prefer": [
+    "gpt-oss-120b",
+    "deepseek",
+    "Qwen",
+    "llama"
+   ],
+   "maxModels": 4
+  }
+ ],
+ "imageProviders": [
+  {
+   "id": "huggingface",
+   "name": "Hugging Face",
+   "kind": "huggingface",
+   "url": "https://router.huggingface.co/hf-inference/models/{model}",
+   "keyEnv": "HF_TOKEN",
+   "models": [
+    "black-forest-labs/FLUX.1-schnell",
+    "stabilityai/stable-diffusion-xl-base-1.0"
+   ],
+   "signupUrl": "https://huggingface.co/settings/tokens",
+   "freeTier": "Uses the small monthly credit on free accounts, shared with chat. Same token as for chat."
+  }
+ ]
+}

@@ -26,7 +26,8 @@
       <h1>Every free AI tier you have, <em>behind one endpoint.</em></h1>
       <p class="lede">Add your free API keys for Gemini, Groq, OpenRouter, Mistral, GitHub Models and others. AI Compiler sends each prompt to a model that still has free quota, rests any provider that hits its limit, and moves on to the next. A harness on top gets better answers out of free models than any one of them gives alone.</p>
       <div class="ctas">
-        <a class="button primary" href="#start">Get started</a>
+        <a class="button primary" href="app/">Open the web app</a>
+        <a class="button" href="#start">Run it on your computer</a>
         <a class="button" href="design.html">How it works</a>
         <a class="button" href="https://github.com/FlamingAirplane/ai-compiler">View on GitHub</a>
       </div>
@@ -63,6 +64,18 @@
         <li class="good"><b>OpenRouter: answers</b><span>The reply streams back, and its tokens are counted.</span></li>
         <li><b>You get the answer</b><span>It says which model answered and which were tried first.</span></li>
       </ol>
+    </div>
+  </section>
+
+  <section class="block" id="web">
+    <div class="wrap">
+      <h2>Use it in your browser</h2>
+      <p class="sub"><a href="app/">The web app</a> runs the same router, harness and skills entirely in your browser, with no install. It talks to the AI providers directly, so nothing passes through any server of ours.</p>
+      <div class="grid">
+        <div class="card"><h3>Your keys stay on your device</h3><p>Keys are encrypted with a passphrase you choose and kept only in this browser. You unlock them once per tab. Lock keys and Forget keys are in the top bar.</p></div>
+        <div class="card"><h3>Nowhere else to send them</h3><p>The page's security policy lets it contact only the AI providers it supports, so even injected code could not send your keys to another site.</p></div>
+        <div class="card"><h3>What works here</h3><p>Chat with Gemini, Groq, Cerebras, OpenRouter, Mistral, Cohere and Hugging Face, images from Hugging Face, the harness, saved chats and all 36 skills. The rest needs the local version.</p></div>
+      </div>
     </div>
   </section>
 
@@ -174,7 +187,7 @@ aic status</code></pre>
         <div class="card"><h3>Mind what you send</h3><p>Several free tiers keep prompts to improve their models. Do not send secrets or private data through it.</p></div>
         <div class="card"><h3>Your keys stay yours</h3><p>Keys live in a private file on your computer and only ever go to the provider they belong to.</p></div>
       </div>
-      <p class="note" style="margin-top:18px">Status: AI Compiler passes 74 automated tests against simulated providers and has been checked against the public model lists of real ones. Each real provider's first request is its live test; <code>aic check</code> makes that request for you. See <a href="design.html#known-limitations">known limitations</a>.</p>
+      <p class="note" style="margin-top:18px">Status: AI Compiler passes 78 automated tests against simulated providers and has been checked against the public model lists of real ones. Each real provider's first request is its live test; <code>aic check</code> makes that request for you. See <a href="design.html#known-limitations">known limitations</a>.</p>
     </div>
   </section>
 </main>

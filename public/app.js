@@ -185,8 +185,11 @@ const cards = new Map();
 const serverNow = () => Date.now() - skew;
 const providerName = (id) => status?.providers.find((p) => p.id === id)?.name ?? id;
 
+// The browser version answers API calls inside the page; the local server version uses the network.
+const serverFetch = (...args) => (window.AIC_FETCH ?? fetch)(...args);
+
 async function api(path, body) {
-  const res = await fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+  const res = await serverFetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined);
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message ?? `Request failed (${res.status})`);
   return data;
@@ -678,7 +681,7 @@ async function send(text) {
   $('send').textContent = 'Stop';
   $('send').classList.add('stop');
   try {
-    const res = await fetch('/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: running.signal });
+    const res = await serverFetch('/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: running.signal });
     if ((res.headers.get('content-type') ?? '').includes('event-stream')) {
       await readStream(res.body, reply);
     } else {
@@ -840,7 +843,7 @@ async function loadGallery() {
 }
 
 function shotCard(img) {
-  const url = `/images/${encodeURIComponent(img.file)}`;
+  const url = img.src ?? `/images/${encodeURIComponent(img.file)}`;
   const del = el('button', { type: 'button', class: 'link', text: 'Delete' });
   del.addEventListener('click', async () => {
     if (!confirm('Delete this image? This cannot be undone.')) return;
@@ -873,7 +876,7 @@ function shotCard(img) {
 function renderGallery() {
   const pending = imaging?.cards ?? [];
   const cards = gallery.map(shotCard);
-  $('gallery').replaceChildren(...pending, ...(cards.length || pending.length ? cards : [el('p', { class: 'empty-note', text: 'Images you make appear here, saved on this computer in data/images.' })]));
+  $('gallery').replaceChildren(...pending, ...(cards.length || pending.length ? cards : [el('p', { class: 'empty-note', text: window.AIC_BROWSER ? 'Images you make appear here, saved in this browser.' : 'Images you make appear here, saved on this computer in data/images.' })]));
 }
 
 let imgSignature = '';
@@ -917,7 +920,7 @@ async function generate() {
   $('imgGo').textContent = 'Stop';
   renderGallery();
   try {
-    const res = await fetch('/v1/images/generations', {
+    const res = await serverFetch('/v1/images/generations', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ prompt, n, size: $('imgSize').value, model: $('imgModel').value, response_format: 'url', aic: { source: 'chat', enhance: $('imgEnhance').checked } }),

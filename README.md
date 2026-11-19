@@ -8,7 +8,7 @@ People use it through a chat page or the terminal. AI tools use it through an Op
 
 It has no dependencies beyond Node.js 22 or newer.
 
-**Website:** https://flamingairplane.github.io/ai-compiler/ · **How it works, and how it could be improved:** [docs/design.md](docs/design.md)
+**Web app (no install):** https://flamingairplane.github.io/ai-compiler/app/ · **Website:** https://flamingairplane.github.io/ai-compiler/ · **How it works, and how it could be improved:** [docs/design.md](docs/design.md)
 
 ## Start
 
@@ -34,6 +34,17 @@ Once you have added keys, check that each one really works (this sends one tiny 
 node src/cli.js check
 ```
 
+## In the browser, with no install
+
+https://flamingairplane.github.io/ai-compiler/app/ runs the same router, harness, skills and chat page entirely in your browser, calling the AI providers directly.
+
+- **Keys.** Saving the first key asks you to choose a passphrase. Keys are encrypted with it (PBKDF2 and AES-GCM) and stored only in that browser. Each new tab asks for the passphrase once. **Lock keys** and **Forget keys** are in the top bar.
+- **What works.** Chat with Gemini, Groq, Cerebras, OpenRouter, Mistral, Cohere and Hugging Face. Images from Hugging Face. The harness modes, saved chats, attachments and all 36 skills. Usage counts are kept in the browser.
+- **What doesn't.** GitHub Models, SambaNova, NVIDIA and Cloudflare refuse requests from web pages. Pollinations demands a bot check from web pages. Page fetching, files and code for the agent, the API, the MCP server and the command line also need the local version.
+- **Safety.** The page may only contact the providers above (plus Wikipedia and Tavily for the agent). Every page on `flamingairplane.github.io` shares one browser storage area, which is why the keys are encrypted rather than stored as they are.
+
+The web app is built from the same source files: after changing `src/`, `public/`, `web/`, `skills/` or `providers.json`, run `npm run build:web` and commit `docs/app`. A test fails if you forget.
+
 ## Using it
 
 ### Chat page
@@ -56,7 +67,7 @@ Open the **Images** tab, describe the picture, and press Generate. Each image go
 
 | Provider | Free tier | Key |
 | --- | --- | --- |
-| Pollinations | One image every 45 seconds or so per computer; slow when busy; adds a small watermark | None: works straight away |
+| Pollinations | One image every 45 seconds or so per computer; slow when busy; adds a small watermark. Local version only | None: works straight away |
 | Cloudflare Workers AI | FLUX schnell and Stable Diffusion out of the daily free allowance | The same token and account ID as for chat |
 | NVIDIA NIM | FLUX models, rate limited | The same key as for chat |
 | Hugging Face | FLUX schnell and SDXL, from the small monthly credit | The same token as for chat |
@@ -236,4 +247,4 @@ Environment variables: `AIC_PORT` (default 4141), `AIC_ENV_FILE`, `AIC_DATA_DIR`
 npm test
 ```
 
-74 tests run the router, harness, tools, sandbox, server and MCP server against simulated providers. What has not been tested is each real provider with a real key, because that needs your keys. The first request you send to each provider is that test; anything a provider does differently from the OpenAI-compatible standard will show up as an error on its card in the dashboard.
+78 tests run the router, harness, tools, sandbox, server and MCP server against simulated providers. What has not been tested is each real provider with a real key, because that needs your keys. The first request you send to each provider is that test; anything a provider does differently from the OpenAI-compatible standard will show up as an error on its card in the dashboard.

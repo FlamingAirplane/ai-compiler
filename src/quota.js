@@ -50,7 +50,15 @@ const blank = () => ({
   lastUsed: null, lastError: null, cooldowns: {}, limits: {},
 });
 
-const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function sleepSync(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    // Browsers do not allow blocking waits on the page's main thread.
+    const end = Date.now() + ms;
+    while (Date.now() < end);
+  }
+}
 
 function addHistory(s, day, requests, tokens) {
   const h = (s.history[day] ??= { requests: 0, tokens: 0 });
